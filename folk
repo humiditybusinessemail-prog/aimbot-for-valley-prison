@@ -1,0 +1,780 @@
+-- Aim-it | Revamped UI
+-- Tabbed: Aimbot / Settings / Keybinds
+-- Accent: amber #f0a500 | Base: #111113
+
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local Stats            = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera      = workspace.CurrentCamera
+
+-- ─── State ───────────────────────────────────────────────────────────────────
+local aimbotEnabled = false
+local teamCheck     = true
+local wallCheck     = true
+local autoPredict   = false
+local fovVisible    = true
+local smoothness    = 0
+local fov           = 80
+local holdingRMB    = false
+local lockedTarget  = nil
+
+local AIM_PARTS    = {"Head","HumanoidRootPart","UpperTorso","Torso","LowerTorso"}
+local aimPartIndex = 1
+
+local Keybinds = {
+    ToggleAimbot  = Enum.KeyCode.V,
+    ToggleTeam    = Enum.KeyCode.RightBracket,
+    ToggleWall    = Enum.KeyCode.LeftBracket,
+    TogglePredict = Enum.KeyCode.Unknown,
+    ToggleFOVVis  = Enum.KeyCode.Unknown,
+    CycleAimPart  = Enum.KeyCode.Unknown,
+}
+local KeybindMeta = {
+    {key="ToggleAimbot",  label="Aimbot"},
+    {key="ToggleTeam",    label="Team Check"},
+    {key="ToggleWall",    label="Wall Check"},
+    {key="TogglePredict", label="Auto-Predict"},
+    {key="ToggleFOVVis",  label="FOV Visible"},
+    {key="CycleAimPart",  label="Cycle Aim Part"},
+}
+local listeningFor = nil
+
+-- ─── Palette ─────────────────────────────────────────────────────────────────
+local C = {
+    base    = Color3.fromRGB(17,  17,  19),
+    surface = Color3.fromRGB(24,  24,  27),
+    raised  = Color3.fromRGB(32,  32,  36),
+    border  = Color3.fromRGB(48,  48,  54),
+    accent  = Color3.fromRGB(240, 165, 0),
+    accentD = Color3.fromRGB(100, 68,  0),
+    textPri = Color3.fromRGB(225, 225, 228),
+    textSec = Color3.fromRGB(120, 120, 130),
+    green   = Color3.fromRGB(80,  210, 120),
+    red     = Color3.fromRGB(220, 70,  70),
+}
+
+-- ─── UI helpers ──────────────────────────────────────────────────────────────
+local function applyCorner(inst, r)
+    Instance.new("UICorner", inst).CornerRadius = UDim.new(0, r)
+end
+
+local function applyStroke(inst, color, thickness)
+    local s = Instance.new("UIStroke", inst)
+    s.Color = color; s.Thickness = thickness; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+end
+
+local function makeFrame(parent, size, pos, color, zindex)
+    local f = Instance.new("Frame")
+    f.Size = size; f.Position = pos
+    f.BackgroundColor3 = color or C.surface
+    f.BorderSizePixel = 0
+    f.ZIndex = zindex or 1
+    f.Parent = parent
+    return f
+end
+
+local function makeLabel(parent, size, pos, text, textColor, fontSize, font, zindex)
+    local l = Instance.new("TextLabel")
+    l.Size = size; l.Position = pos
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = textColor or C.textPri
+    l.TextSize = fontSize or 13
+    l.Font = font or Enum.Font.Gotham
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = zindex or 2
+    l.Parent = parent
+    return l
+end
+
+local function makeBtn(parent, size, pos, text, zindex)
+    local b = Instance.new("TextButton")
+    b.Size = size; b.Position = pos
+    b.BackgroundColor3 = C.raised
+    b.Text = text
+    b.TextColor3 = C.textPri
+    b.TextSize = 13
+    b.Font = Enum.Font.Gotham
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.ZIndex = zindex or 2
+    b.Parent = parent
+    applyCorner(b, 5)
+    return b
+end
+
+-- pill toggle: returns {frame, knob, setValue}
+local function makePillToggle(parent, pos, zindex)
+    local track = Instance.new("Frame")
+    track.Size = UDim2.fromOffset(42, 22)
+    track.Position = pos
+    track.BackgroundColor3 = C.raised
+    track.BorderSizePixel = 0
+    track.ZIndex = zindex or 2
+    track.Parent = parent
+    applyCorner(track, 11)
+    applyStroke(track, C.border, 1)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(16, 16)
+    knob.Position = UDim2.fromOffset(3, 3)
+    knob.BackgroundColor3 = C.textSec
+    knob.BorderSizePixel = 0
+    knob.ZIndex = (zindex or 2) + 1
+    knob.Parent = track
+    applyCorner(knob, 8)
+
+    local function setValue(on)
+        TweenService:Create(track, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and C.accentD or C.raised
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15), {
+            Position = on and UDim2.fromOffset(23, 3) or UDim2.fromOffset(3, 3),
+            BackgroundColor3 = on and C.accent or C.textSec,
+        }):Play()
+    end
+
+    return track, knob, setValue
+end
+
+-- ─── Root ScreenGui ───────────────────────────────────────────────────────────
+local SG = Instance.new("ScreenGui")
+SG.Name = "AimItUI"
+SG.ResetOnSpawn = false
+SG.IgnoreGuiInset = true
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+SG.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ─── Main window ─────────────────────────────────────────────────────────────
+-- 260w × 340h: enough room for 3 tabs without feeling bloated
+local WIN_W, WIN_H = 260, 340
+
+local window = makeFrame(SG, UDim2.fromOffset(WIN_W, WIN_H),
+    UDim2.new(0.04, 0, 0.28, 0), C.base)
+window.Active = true
+window.Draggable = true
+window.ZIndex = 1
+applyCorner(window, 8)
+applyStroke(window, C.border, 1)
+
+-- thin accent bar at top
+local accentBar = makeFrame(window, UDim2.new(1, 0, 0, 2),
+    UDim2.fromOffset(0, 0), C.accent, 3)
+applyCorner(accentBar, 8) -- matches window
+
+-- ── Title row ────────────────────────────────────────────────────────────────
+local titleRow = makeFrame(window, UDim2.new(1, 0, 0, 36),
+    UDim2.fromOffset(0, 2), C.base, 2)
+
+makeLabel(titleRow, UDim2.new(1, -40, 1, 0), UDim2.fromOffset(14, 0),
+    "Aim-it", C.accent, 15, Enum.Font.GothamBold, 3)
+
+local statusDot = Instance.new("Frame")
+statusDot.Size = UDim2.fromOffset(8, 8)
+statusDot.Position = UDim2.new(0, 72, 0.5, -4)
+statusDot.BackgroundColor3 = C.red
+statusDot.BorderSizePixel = 0
+statusDot.ZIndex = 3
+statusDot.Parent = titleRow
+applyCorner(statusDot, 4) -- stays red when off, green when on
+
+-- close / minimise
+local closeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
+    UDim2.new(1, -28, 0.5, -11), "✕", 3)
+closeBtn.TextSize = 12
+closeBtn.BackgroundColor3 = C.raised
+
+-- ── Tab bar ───────────────────────────────────────────────────────────────────
+local TAB_Y = 38
+local tabBar = makeFrame(window, UDim2.new(1, -16, 0, 28),
+    UDim2.fromOffset(8, TAB_Y), C.raised, 2)
+applyCorner(tabBar, 6)
+
+local TAB_NAMES = {"Aimbot", "Settings", "Keybinds"}
+local tabBtns   = {}
+local tabPages  = {}
+
+for i, name in ipairs(TAB_NAMES) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1/#TAB_NAMES, 0, 1, 0)
+    btn.Position = UDim2.new((i-1)/#TAB_NAMES, 0, 0, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text = name
+    btn.TextColor3 = C.textSec
+    btn.TextSize = 12
+    btn.Font = Enum.Font.GothamSemibold
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    btn.ZIndex = 3
+    btn.Parent = tabBar
+    tabBtns[i] = btn
+end
+
+-- active tab underline
+local tabUnderline = Instance.new("Frame")
+tabUnderline.Size = UDim2.new(1/#TAB_NAMES, -8, 0, 2)
+tabUnderline.Position = UDim2.new(0, 4, 1, -2)
+tabUnderline.BackgroundColor3 = C.accent
+tabUnderline.BorderSizePixel = 0
+tabUnderline.ZIndex = 4
+tabUnderline.Parent = tabBar
+applyCorner(tabUnderline, 1)
+
+-- page container
+local CONTENT_Y = TAB_Y + 28 + 6
+local pageContainer = makeFrame(window,
+    UDim2.new(1, -16, 0, WIN_H - CONTENT_Y - 8),
+    UDim2.fromOffset(8, CONTENT_Y), C.base, 2)
+
+for i = 1, #TAB_NAMES do
+    local page = makeFrame(pageContainer,
+        UDim2.new(1, 0, 1, 0), UDim2.fromOffset(0,0), C.base, 2)
+    page.Visible = (i == 1)
+    tabPages[i] = page
+end
+
+local activeTab = 1
+local function switchTab(idx)
+    tabPages[activeTab].Visible = false
+    tabBtns[activeTab].TextColor3 = C.textSec
+    activeTab = idx
+    tabPages[activeTab].Visible = true
+    tabBtns[activeTab].TextColor3 = C.accent
+    TweenService:Create(tabUnderline, TweenInfo.new(0.15), {
+        Position = UDim2.new((idx-1)/#TAB_NAMES, 4, 1, -2)
+    }):Play()
+end
+switchTab(1)
+
+for i, btn in ipairs(tabBtns) do
+    btn.MouseButton1Click:Connect(function() switchTab(i) end)
+end
+
+-- close button hides window
+local windowVisible = true
+closeBtn.MouseButton1Click:Connect(function()
+    windowVisible = not windowVisible
+    window.Visible = windowVisible
+end)
+
+-- ─── Notification toast ───────────────────────────────────────────────────────
+local toast = Instance.new("TextLabel")
+toast.AnchorPoint = Vector2.new(0.5, 0)
+toast.Position = UDim2.new(0.5, 0, 0.07, 0)
+toast.Size = UDim2.fromOffset(230, 26)
+toast.BackgroundColor3 = C.raised
+toast.BackgroundTransparency = 0.1
+toast.TextColor3 = C.textPri
+toast.Font = Enum.Font.GothamSemibold
+toast.TextSize = 13
+toast.TextTransparency = 1
+toast.Visible = false
+toast.ZIndex = 10
+toast.Parent = SG
+applyCorner(toast, 6)
+applyStroke(toast, C.border, 1)
+
+local toastActive = false
+local function notify(text, color)
+    toast.Text = "  " .. text
+    toast.TextColor3 = color or C.textPri
+    toast.Visible = true
+    toastActive = true
+    TweenService:Create(toast, TweenInfo.new(0.18), {TextTransparency = 0}):Play()
+    task.delay(1.5, function()
+        TweenService:Create(toast, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
+        task.delay(0.35, function()
+            toast.Visible = false
+            toastActive = false
+        end)
+    end)
+end
+
+-- ─── Page 1: Aimbot ───────────────────────────────────────────────────────────
+local p1 = tabPages[1]
+local ROW_H = 32
+local ROW_GAP = 6
+local function rowY(n) return (n-1) * (ROW_H + ROW_GAP) end
+
+-- helper: row with label left + pill right
+local toggleSetters = {}
+local function addToggleRow(page, n, labelText, initVal, onChange)
+    local row = makeFrame(page, UDim2.new(1, 0, 0, ROW_H),
+        UDim2.fromOffset(0, rowY(n)), C.surface, 3)
+    applyCorner(row, 6)
+
+    makeLabel(row, UDim2.new(1, -54, 1, 0), UDim2.fromOffset(10, 0),
+        labelText, C.textPri, 13, Enum.Font.Gotham, 4)
+
+    local track, _, setValue = makePillToggle(row,
+        UDim2.new(1, -50, 0.5, -11), 4)
+    setValue(initVal)
+
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local newVal = onChange()
+            setValue(newVal)
+        end
+    end)
+
+    toggleSetters[labelText] = setValue
+    return row
+end
+
+addToggleRow(p1, 1, "Aimbot", aimbotEnabled, function()
+    aimbotEnabled = not aimbotEnabled
+    statusDot.BackgroundColor3 = aimbotEnabled and C.green or C.red
+    notify(aimbotEnabled and "Aimbot on" or "Aimbot off",
+        aimbotEnabled and C.green or C.red)
+    return aimbotEnabled
+end)
+
+addToggleRow(p1, 2, "Team Check", teamCheck, function()
+    teamCheck = not teamCheck
+    notify("Team Check " .. (teamCheck and "on" or "off"))
+    return teamCheck
+end)
+
+addToggleRow(p1, 3, "Wall Check", wallCheck, function()
+    wallCheck = not wallCheck
+    notify("Wall Check " .. (wallCheck and "on" or "off"))
+    return wallCheck
+end)
+
+addToggleRow(p1, 4, "Auto-Predict", autoPredict, function()
+    autoPredict = not autoPredict
+    notify("Auto-Predict " .. (autoPredict and "on" or "off"))
+    return autoPredict
+end)
+
+addToggleRow(p1, 5, "FOV Visible", fovVisible, function()
+    fovVisible = not fovVisible
+    notify("FOV circle " .. (fovVisible and "on" or "off"))
+    return fovVisible
+end)
+
+-- Aim Part cycler row
+local aimRow = makeFrame(p1, UDim2.new(1, 0, 0, ROW_H),
+    UDim2.fromOffset(0, rowY(6)), C.surface, 3)
+applyCorner(aimRow, 6)
+makeLabel(aimRow, UDim2.new(0, 100, 1, 0), UDim2.fromOffset(10, 0),
+    "Aim Part", C.textPri, 13, Enum.Font.Gotham, 4)
+
+local aimPartLbl = makeLabel(aimRow, UDim2.new(0, 90, 1, 0),
+    UDim2.new(1, -140, 0, 0),
+    AIM_PARTS[aimPartIndex], C.accent, 12, Enum.Font.GothamSemibold, 4)
+aimPartLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+local prevBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
+    UDim2.new(1, -50, 0.5, -11), "<", 4)
+prevBtn.TextSize = 12; prevBtn.BackgroundColor3 = C.raised
+
+local nextBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
+    UDim2.new(1, -24, 0.5, -11), ">", 4)
+nextBtn.TextSize = 12; nextBtn.BackgroundColor3 = C.raised
+
+local function updateAimPartLabel()
+    aimPartLbl.Text = AIM_PARTS[aimPartIndex]
+end
+
+prevBtn.MouseButton1Click:Connect(function()
+    aimPartIndex = ((aimPartIndex - 2) % #AIM_PARTS) + 1
+    updateAimPartLabel()
+    notify("Aim → " .. AIM_PARTS[aimPartIndex])
+end)
+
+nextBtn.MouseButton1Click:Connect(function()
+    aimPartIndex = (aimPartIndex % #AIM_PARTS) + 1
+    updateAimPartLabel()
+    notify("Aim → " .. AIM_PARTS[aimPartIndex])
+end)
+
+-- ─── Page 2: Settings ─────────────────────────────────────────────────────────
+local p2 = tabPages[2]
+
+local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, onChanged)
+    local row = makeFrame(page, UDim2.new(1, 0, 0, 44),
+        UDim2.fromOffset(0, n == 1 and 0 or (n-1)*52), C.surface, 3)
+    applyCorner(row, 6)
+
+    local topLbl = makeLabel(row, UDim2.new(0.6, 0, 0, 18),
+        UDim2.fromOffset(10, 4), labelText, C.textPri, 12, Enum.Font.Gotham, 4)
+
+    local valLbl = makeLabel(row, UDim2.new(0.4, -10, 0, 18),
+        UDim2.new(0.6, 0, 0, 4), tostring(initVal), C.accent, 12,
+        Enum.Font.GothamSemibold, 4)
+    valLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+    -- track
+    local trackBg = makeFrame(row, UDim2.new(1, -20, 0, 4),
+        UDim2.fromOffset(10, 32), C.raised, 4)
+    applyCorner(trackBg, 2)
+
+    local fill = makeFrame(trackBg,
+        UDim2.new((initVal - minV)/(maxV - minV), 0, 1, 0),
+        UDim2.fromOffset(0, 0), C.accent, 5)
+    applyCorner(fill, 2)
+
+    local dragging = false
+    local function updateFromX(absX)
+        local rel = math.clamp((absX - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
+        local raw = minV + rel * (maxV - minV)
+        local val = isFloat and math.floor(raw * 100 + 0.5) / 100 or math.floor(raw + 0.5)
+        fill.Size = UDim2.new(rel, 0, 1, 0)
+        valLbl.Text = tostring(val)
+        onChanged(val)
+    end
+
+    trackBg.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            updateFromX(inp.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(inp)
+        if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
+            updateFromX(inp.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+end
+
+addSliderRow(p2, 1, "Smoothness", smoothness, 0, 1, true, function(v)
+    smoothness = v
+end)
+
+addSliderRow(p2, 2, "FOV Radius", fov, 50, 500, false, function(v)
+    fov = v
+end)
+
+-- ─── Page 3: Keybinds ────────────────────────────────────────────────────────
+local p3 = tabPages[3]
+
+local kbBtnRefs = {}
+
+local function keybindName(kc)
+    if kc == Enum.KeyCode.Unknown then return "---" end
+    return tostring(kc):match("KeyCode%.(.+)") or "?"
+end
+
+local function updateKbBtn(key)
+    if kbBtnRefs[key] then
+        kbBtnRefs[key].Text = keybindName(Keybinds[key])
+        kbBtnRefs[key].BackgroundColor3 = C.raised
+        kbBtnRefs[key].TextColor3 = C.textPri
+    end
+end
+
+for i, meta in ipairs(KeybindMeta) do
+    local row = makeFrame(p3, UDim2.new(1, 0, 0, ROW_H),
+        UDim2.fromOffset(0, rowY(i)), C.surface, 3)
+    applyCorner(row, 6)
+
+    makeLabel(row, UDim2.new(0, 130, 1, 0), UDim2.fromOffset(10, 0),
+        meta.label, C.textPri, 12, Enum.Font.Gotham, 4)
+
+    local kbBtn = makeBtn(row, UDim2.fromOffset(72, 22),
+        UDim2.new(1, -98, 0.5, -11), keybindName(Keybinds[meta.key]), 4)
+    kbBtn.TextSize = 11
+    kbBtn.Font = Enum.Font.GothamSemibold
+    kbBtnRefs[meta.key] = kbBtn
+
+    local clrBtn = makeBtn(row, UDim2.fromOffset(20, 22),
+        UDim2.new(1, -24, 0.5, -11), "✕", 4)
+    clrBtn.TextSize = 10
+    clrBtn.BackgroundColor3 = Color3.fromRGB(80, 28, 28)
+    clrBtn.TextColor3 = C.red
+
+    local captureKey = meta.key
+
+    kbBtn.MouseButton1Click:Connect(function()
+        if listeningFor == captureKey then
+            listeningFor = nil
+            updateKbBtn(captureKey)
+            return
+        end
+        if listeningFor then updateKbBtn(listeningFor) end
+        listeningFor = captureKey
+        kbBtn.Text = "..."
+        kbBtn.BackgroundColor3 = C.accentD
+        kbBtn.TextColor3 = C.accent
+    end)
+
+    clrBtn.MouseButton1Click:Connect(function()
+        if listeningFor == captureKey then listeningFor = nil end
+        Keybinds[captureKey] = Enum.KeyCode.Unknown
+        updateKbBtn(captureKey)
+        notify(meta.label .. " unbound", C.textSec)
+    end)
+end
+
+-- ─── Input ────────────────────────────────────────────────────────────────────
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- keybind capture (bypasses gameProcessed)
+    if listeningFor and input.UserInputType == Enum.UserInputType.Keyboard then
+        local kc = input.KeyCode
+        if kc == Enum.KeyCode.Escape then
+            updateKbBtn(listeningFor)
+            listeningFor = nil
+            return
+        end
+        Keybinds[listeningFor] = kc
+        notify(listeningFor .. " → " .. keybindName(kc), C.accent)
+        updateKbBtn(listeningFor)
+        listeningFor = nil
+        return
+    end
+
+    if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        local kc = input.KeyCode
+        local function fire(bindKey, action)
+            if Keybinds[bindKey] ~= Enum.KeyCode.Unknown and kc == Keybinds[bindKey] then
+                action()
+            end
+        end
+
+        fire("ToggleAimbot", function()
+            aimbotEnabled = not aimbotEnabled
+            statusDot.BackgroundColor3 = aimbotEnabled and C.green or C.red
+            if toggleSetters["Aimbot"] then toggleSetters["Aimbot"](aimbotEnabled) end
+            notify(aimbotEnabled and "Aimbot on" or "Aimbot off",
+                aimbotEnabled and C.green or C.red)
+        end)
+        fire("ToggleTeam", function()
+            teamCheck = not teamCheck
+            if toggleSetters["Team Check"] then toggleSetters["Team Check"](teamCheck) end
+            notify("Team Check " .. (teamCheck and "on" or "off"))
+        end)
+        fire("ToggleWall", function()
+            wallCheck = not wallCheck
+            if toggleSetters["Wall Check"] then toggleSetters["Wall Check"](wallCheck) end
+            notify("Wall Check " .. (wallCheck and "on" or "off"))
+        end)
+        fire("TogglePredict", function()
+            autoPredict = not autoPredict
+            if toggleSetters["Auto-Predict"] then toggleSetters["Auto-Predict"](autoPredict) end
+            notify("Auto-Predict " .. (autoPredict and "on" or "off"))
+        end)
+        fire("ToggleFOVVis", function()
+            fovVisible = not fovVisible
+            if toggleSetters["FOV Visible"] then toggleSetters["FOV Visible"](fovVisible) end
+            notify("FOV circle " .. (fovVisible and "on" or "off"))
+        end)
+        fire("CycleAimPart", function()
+            aimPartIndex = (aimPartIndex % #AIM_PARTS) + 1
+            updateAimPartLabel()
+            notify("Aim → " .. AIM_PARTS[aimPartIndex])
+        end)
+
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        holdingRMB = true
+        lockedTarget = nil
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        holdingRMB = false
+        lockedTarget = nil
+    end
+end)
+
+-- ─── FOV Circle ───────────────────────────────────────────────────────────────
+local DrawingAvail = pcall(function() return Drawing and Drawing.new end)
+local fovCircle, fovFrame
+
+if DrawingAvail then
+    fovCircle = Drawing.new("Circle")
+    fovCircle.Thickness = 1.5
+    fovCircle.NumSides = 64
+    fovCircle.Radius = fov
+    fovCircle.Filled = false
+    fovCircle.Color = Color3.fromRGB(240, 165, 0)
+    fovCircle.Transparency = 0.6
+    fovCircle.Visible = true
+else
+    local fovGui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
+    fovGui.Name = "AimItFOV"
+    fovFrame = Instance.new("Frame", fovGui)
+    fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    fovFrame.BackgroundTransparency = 1
+    local fs = Instance.new("UIStroke", fovFrame)
+    fs.Thickness = 1.5
+    fs.Color = Color3.fromRGB(240, 165, 0)
+    fs.Transparency = 0.6
+    Instance.new("UICorner", fovFrame).CornerRadius = UDim.new(1, 0)
+end
+
+local function setFOVVisible(v)
+    if fovCircle then fovCircle.Visible = v
+    elseif fovFrame then fovFrame.Visible = v end
+end
+
+local function updateCircle()
+    if not fovVisible then return end
+    local mouse = UserInputService:GetMouseLocation()
+    if fovCircle then
+        fovCircle.Position = Vector2.new(mouse.X, mouse.Y)
+        fovCircle.Radius = fov
+        fovCircle.Visible = true
+    elseif fovFrame then
+        fovFrame.Position = UDim2.fromOffset(mouse.X, mouse.Y)
+        fovFrame.Size = UDim2.fromOffset(fov * 2, fov * 2)
+        fovFrame.Visible = true
+    end
+end
+
+-- ─── Aimbot helpers (unchanged logic) ────────────────────────────────────────
+local function isIgnoredPart(part)
+    if not part or not part:IsA("BasePart") then return false end
+    if part.Transparency == 1 then
+        for _, child in ipairs(part:GetChildren()) do
+            if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceAppearance") then
+                return false
+            end
+        end
+        return true
+    end
+    return false
+end
+
+local function isVisible(targetPart)
+    if not wallCheck then return true end
+    local origin = Camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Blacklist
+    rp.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+    rp.IgnoreWater = true
+    local attempts = 0
+    local result = workspace:Raycast(origin, direction, rp)
+    while result and attempts < 12 do
+        local hit = result.Instance
+        if not hit then break end
+        if hit:IsDescendantOf(targetPart.Parent) then return true end
+        if isIgnoredPart(hit) then
+            attempts += 1
+            local newOrigin = result.Position + direction.Unit * 0.1
+            table.insert(rp.FilterDescendantsInstances, hit)
+            direction = targetPart.Position - newOrigin
+            result = workspace:Raycast(newOrigin, direction, rp)
+        else
+            return false
+        end
+    end
+    return result == nil
+end
+
+local function getPingSeconds()
+    local item = Stats and Stats.Network and Stats.Network.ServerStatsItem
+        and Stats.Network.ServerStatsItem["Data Ping"]
+    if item then
+        local n = tonumber((item:GetValueString() or ""):match("%d+"))
+        if n then return n / 1000 end
+    end
+    return 0.05
+end
+
+local function getVelocityFromChar(char)
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        local ok, vel = pcall(function() return hrp.AssemblyLinearVelocity end)
+        if ok and vel then return vel end
+        return hrp.Velocity
+    end
+    return Vector3.zero
+end
+
+local function isEnemy(plr)
+    if not teamCheck then return true end
+    if not LocalPlayer.Team or not plr.Team then return false end
+    local neutral  = {["Menu"]=true, ["Civilian"]=true}
+    local friendly = {["Sheriff's Office"]=true,["Department of Corrections"]=true,
+                      ["State Police"]=true,["VCSO-SWAT"]=true,["WeaponsTester"]=true}
+    local enemy    = {["Booking"]=true,["Escapee"]=true,["Maximum Security"]=true,
+                      ["Medium Security"]=true,["Minimum Security"]=true,["Mental Patient"]=true}
+    local my = LocalPlayer.Team.Name
+    local tg = plr.Team.Name
+    if neutral[my] or neutral[tg] then return false end
+    if friendly[my] then return enemy[tg] == true end
+    if enemy[my]    then return friendly[tg] == true end
+    return false
+end
+
+local function resolveAimPart(char)
+    local part = char:FindFirstChild(AIM_PARTS[aimPartIndex])
+    if part then return part end
+    for _, name in ipairs(AIM_PARTS) do
+        local p = char:FindFirstChild(name)
+        if p then return p end
+    end
+    return nil
+end
+
+local function getClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local char  = plr.Character
+            local hum   = char:FindFirstChildOfClass("Humanoid")
+            local part  = resolveAimPart(char)
+            if hum and hum.Health > 0 and part and isEnemy(plr) then
+                local v3, onScreen = Camera:WorldToViewportPoint(part.Position)
+                if onScreen and isVisible(part) then
+                    local mouse = UserInputService:GetMouseLocation()
+                    local mag   = (Vector2.new(v3.X, v3.Y) - mouse).Magnitude
+                    if mag < fov and mag < dist then
+                        dist = mag
+                        closest = part
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- ─── Main loop ────────────────────────────────────────────────────────────────
+RunService.RenderStepped:Connect(function()
+    updateCircle()
+    if not fovVisible then setFOVVisible(false) end
+
+    if aimbotEnabled and holdingRMB then
+        local lockValid = lockedTarget
+            and lockedTarget.Parent
+            and lockedTarget:IsDescendantOf(workspace)
+            and lockedTarget.Name == AIM_PARTS[aimPartIndex]
+
+        if not lockValid then
+            lockedTarget = getClosestTarget()
+        end
+
+        if lockedTarget then
+            local desiredPos = lockedTarget.Position
+            if autoPredict then
+                local vel = getVelocityFromChar(lockedTarget.Parent)
+                desiredPos = lockedTarget.Position + vel * getPingSeconds()
+            end
+            local current = Camera.CFrame
+            local desired = CFrame.new(current.Position, desiredPos)
+            local alpha   = math.clamp(1 - smoothness, 0.05, 1)
+            Camera.CFrame = current:Lerp(desired, alpha)
+
+            local hum = lockedTarget.Parent
+                and lockedTarget.Parent:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then
+                lockedTarget = nil
+            end
+        end
+    end
+end)
