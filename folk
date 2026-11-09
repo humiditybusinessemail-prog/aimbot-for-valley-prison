@@ -32,6 +32,7 @@ local Keybinds = {
     TogglePredict = Enum.KeyCode.Unknown,
     ToggleFOVVis  = Enum.KeyCode.Unknown,
     CycleAimPart  = Enum.KeyCode.Unknown,
+    ToggleWindow  = Enum.KeyCode.RightShift,
 }
 local KeybindMeta = {
     {key="ToggleAimbot",  label="Aimbot"},
@@ -40,6 +41,7 @@ local KeybindMeta = {
     {key="TogglePredict", label="Auto-Predict"},
     {key="ToggleFOVVis",  label="FOV Visible"},
     {key="CycleAimPart",  label="Cycle Aim Part"},
+    {key="ToggleWindow",  label="Show/Hide UI"},
 }
 local listeningFor = nil
 
@@ -55,6 +57,7 @@ local C = {
     textSec = Color3.fromRGB(120, 120, 130),
     green   = Color3.fromRGB(80,  210, 120),
     red     = Color3.fromRGB(220, 70,  70),
+    yellow  = Color3.fromRGB(255, 210, 0),
 }
 
 -- ─── UI helpers ──────────────────────────────────────────────────────────────
@@ -64,7 +67,9 @@ end
 
 local function applyStroke(inst, color, thickness)
     local s = Instance.new("UIStroke", inst)
-    s.Color = color; s.Thickness = thickness; s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Color = color
+    s.Thickness = thickness
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 end
 
 local function makeFrame(parent, size, pos, color, zindex)
@@ -107,7 +112,6 @@ local function makeBtn(parent, size, pos, text, zindex)
     return b
 end
 
--- pill toggle: returns {frame, knob, setValue}
 local function makePillToggle(parent, pos, zindex)
     local track = Instance.new("Frame")
     track.Size = UDim2.fromOffset(42, 22)
@@ -150,7 +154,6 @@ SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 SG.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ─── Main window ─────────────────────────────────────────────────────────────
--- 260w × 340h: enough room for 3 tabs without feeling bloated
 local WIN_W, WIN_H = 260, 340
 
 local window = makeFrame(SG, UDim2.fromOffset(WIN_W, WIN_H),
@@ -161,10 +164,9 @@ window.ZIndex = 1
 applyCorner(window, 8)
 applyStroke(window, C.border, 1)
 
--- thin accent bar at top
 local accentBar = makeFrame(window, UDim2.new(1, 0, 0, 2),
     UDim2.fromOffset(0, 0), C.accent, 3)
-applyCorner(accentBar, 8) -- matches window
+applyCorner(accentBar, 8)
 
 -- ── Title row ────────────────────────────────────────────────────────────────
 local titleRow = makeFrame(window, UDim2.new(1, 0, 0, 36),
@@ -180,13 +182,21 @@ statusDot.BackgroundColor3 = C.red
 statusDot.BorderSizePixel = 0
 statusDot.ZIndex = 3
 statusDot.Parent = titleRow
-applyCorner(statusDot, 4) -- stays red when off, green when on
+applyCorner(statusDot, 4)
 
--- close / minimise
+-- minimize button (yellow, left of close)
+local minimizeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
+    UDim2.new(1, -54, 0.5, -11), "–", 3)
+minimizeBtn.TextSize = 14
+minimizeBtn.BackgroundColor3 = C.yellow
+minimizeBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
+
+-- close button
 local closeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
     UDim2.new(1, -28, 0.5, -11), "✕", 3)
 closeBtn.TextSize = 12
-closeBtn.BackgroundColor3 = C.raised
+closeBtn.BackgroundColor3 = C.red
+closeBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
 
 -- ── Tab bar ───────────────────────────────────────────────────────────────────
 local TAB_Y = 38
@@ -214,7 +224,6 @@ for i, name in ipairs(TAB_NAMES) do
     tabBtns[i] = btn
 end
 
--- active tab underline
 local tabUnderline = Instance.new("Frame")
 tabUnderline.Size = UDim2.new(1/#TAB_NAMES, -8, 0, 2)
 tabUnderline.Position = UDim2.new(0, 4, 1, -2)
@@ -224,7 +233,6 @@ tabUnderline.ZIndex = 4
 tabUnderline.Parent = tabBar
 applyCorner(tabUnderline, 1)
 
--- page container
 local CONTENT_Y = TAB_Y + 28 + 6
 local pageContainer = makeFrame(window,
     UDim2.new(1, -16, 0, WIN_H - CONTENT_Y - 8),
@@ -232,7 +240,7 @@ local pageContainer = makeFrame(window,
 
 for i = 1, #TAB_NAMES do
     local page = makeFrame(pageContainer,
-        UDim2.new(1, 0, 1, 0), UDim2.fromOffset(0,0), C.base, 2)
+        UDim2.new(1, 0, 1, 0), UDim2.fromOffset(0, 0), C.base, 2)
     page.Visible = (i == 1)
     tabPages[i] = page
 end
@@ -254,11 +262,20 @@ for i, btn in ipairs(tabBtns) do
     btn.MouseButton1Click:Connect(function() switchTab(i) end)
 end
 
--- close button hides window
+-- ── Window visibility ────────────────────────────────────────────────────────
 local windowVisible = true
+
+local function setWindowVisible(v)
+    windowVisible = v
+    window.Visible = v
+end
+
 closeBtn.MouseButton1Click:Connect(function()
-    windowVisible = not windowVisible
-    window.Visible = windowVisible
+    setWindowVisible(false)
+end)
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    setWindowVisible(false)
 end)
 
 -- ─── Notification toast ───────────────────────────────────────────────────────
@@ -278,30 +295,25 @@ toast.Parent = SG
 applyCorner(toast, 6)
 applyStroke(toast, C.border, 1)
 
-local toastActive = false
 local function notify(text, color)
     toast.Text = "  " .. text
     toast.TextColor3 = color or C.textPri
     toast.Visible = true
-    toastActive = true
     TweenService:Create(toast, TweenInfo.new(0.18), {TextTransparency = 0}):Play()
     task.delay(1.5, function()
         TweenService:Create(toast, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
-        task.delay(0.35, function()
-            toast.Visible = false
-            toastActive = false
-        end)
+        task.delay(0.35, function() toast.Visible = false end)
     end)
 end
 
 -- ─── Page 1: Aimbot ───────────────────────────────────────────────────────────
 local p1 = tabPages[1]
-local ROW_H = 32
+local ROW_H  = 32
 local ROW_GAP = 6
 local function rowY(n) return (n-1) * (ROW_H + ROW_GAP) end
 
--- helper: row with label left + pill right
 local toggleSetters = {}
+
 local function addToggleRow(page, n, labelText, initVal, onChange)
     local row = makeFrame(page, UDim2.new(1, 0, 0, ROW_H),
         UDim2.fromOffset(0, rowY(n)), C.surface, 3)
@@ -322,7 +334,6 @@ local function addToggleRow(page, n, labelText, initVal, onChange)
     end)
 
     toggleSetters[labelText] = setValue
-    return row
 end
 
 addToggleRow(p1, 1, "Aimbot", aimbotEnabled, function()
@@ -357,10 +368,11 @@ addToggleRow(p1, 5, "FOV Visible", fovVisible, function()
     return fovVisible
 end)
 
--- Aim Part cycler row
+-- Aim Part cycler
 local aimRow = makeFrame(p1, UDim2.new(1, 0, 0, ROW_H),
     UDim2.fromOffset(0, rowY(6)), C.surface, 3)
 applyCorner(aimRow, 6)
+
 makeLabel(aimRow, UDim2.new(0, 100, 1, 0), UDim2.fromOffset(10, 0),
     "Aim Part", C.textPri, 13, Enum.Font.Gotham, 4)
 
@@ -371,11 +383,11 @@ aimPartLbl.TextXAlignment = Enum.TextXAlignment.Right
 
 local prevBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
     UDim2.new(1, -50, 0.5, -11), "<", 4)
-prevBtn.TextSize = 12; prevBtn.BackgroundColor3 = C.raised
+prevBtn.TextSize = 12
 
 local nextBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
     UDim2.new(1, -24, 0.5, -11), ">", 4)
-nextBtn.TextSize = 12; nextBtn.BackgroundColor3 = C.raised
+nextBtn.TextSize = 12
 
 local function updateAimPartLabel()
     aimPartLbl.Text = AIM_PARTS[aimPartIndex]
@@ -393,15 +405,16 @@ nextBtn.MouseButton1Click:Connect(function()
     notify("Aim → " .. AIM_PARTS[aimPartIndex])
 end)
 
--- ─── Page 2: Settings ─────────────────────────────────────────────────────────
+-- ─── Page 2: Settings — sliders (drag fix) ───────────────────────────────────
 local p2 = tabPages[2]
+local anySliderDragging = false  -- shared flag: disables window.Draggable while sliding
 
 local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, onChanged)
     local row = makeFrame(page, UDim2.new(1, 0, 0, 44),
-        UDim2.fromOffset(0, n == 1 and 0 or (n-1)*52), C.surface, 3)
+        UDim2.fromOffset(0, (n-1) * 52), C.surface, 3)
     applyCorner(row, 6)
 
-    local topLbl = makeLabel(row, UDim2.new(0.6, 0, 0, 18),
+    makeLabel(row, UDim2.new(0.6, 0, 0, 18),
         UDim2.fromOffset(10, 4), labelText, C.textPri, 12, Enum.Font.Gotham, 4)
 
     local valLbl = makeLabel(row, UDim2.new(0.4, -10, 0, 18),
@@ -409,40 +422,69 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
         Enum.Font.GothamSemibold, 4)
     valLbl.TextXAlignment = Enum.TextXAlignment.Right
 
-    -- track
-    local trackBg = makeFrame(row, UDim2.new(1, -20, 0, 4),
+    local trackBg = makeFrame(row, UDim2.new(1, -20, 0, 6),
         UDim2.fromOffset(10, 32), C.raised, 4)
-    applyCorner(trackBg, 2)
+    applyCorner(trackBg, 3)
+
+    -- clickable hit area: taller than visual track so it's easy to grab
+    local hitArea = Instance.new("TextButton")
+    hitArea.Size = UDim2.new(1, 0, 0, 20)
+    hitArea.Position = UDim2.fromOffset(0, -7)
+    hitArea.BackgroundTransparency = 1
+    hitArea.Text = ""
+    hitArea.ZIndex = 6
+    hitArea.Parent = trackBg
 
     local fill = makeFrame(trackBg,
         UDim2.new((initVal - minV)/(maxV - minV), 0, 1, 0),
         UDim2.fromOffset(0, 0), C.accent, 5)
-    applyCorner(fill, 2)
+    applyCorner(fill, 3)
+
+    -- knob dot
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(12, 12)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new((initVal - minV)/(maxV - minV), 0, 0.5, 0)
+    knob.BackgroundColor3 = C.textPri
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 6
+    knob.Parent = trackBg
+    applyCorner(knob, 6)
 
     local dragging = false
+
     local function updateFromX(absX)
-        local rel = math.clamp((absX - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
+        local rel = math.clamp(
+            (absX - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
         local raw = minV + rel * (maxV - minV)
-        local val = isFloat and math.floor(raw * 100 + 0.5) / 100 or math.floor(raw + 0.5)
+        local val = isFloat
+            and (math.floor(raw * 100 + 0.5) / 100)
+            or  math.floor(raw + 0.5)
         fill.Size = UDim2.new(rel, 0, 1, 0)
+        knob.Position = UDim2.new(rel, 0, 0.5, 0)
         valLbl.Text = tostring(val)
         onChanged(val)
     end
 
-    trackBg.InputBegan:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            updateFromX(inp.Position.X)
-        end
+    hitArea.MouseButton1Down:Connect(function()
+        dragging = true
+        anySliderDragging = true
+        window.Draggable = false  -- prevent window drag stealing the input
+        local mouse = UserInputService:GetMouseLocation()
+        updateFromX(mouse.X)
     end)
+
     UserInputService.InputChanged:Connect(function(inp)
         if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
             updateFromX(inp.Position.X)
         end
     end)
+
     UserInputService.InputEnded:Connect(function(inp)
-        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+        if dragging and inp.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
+            anySliderDragging = false
+            window.Draggable = true  -- restore window drag
         end
     end)
 end
@@ -457,7 +499,6 @@ end)
 
 -- ─── Page 3: Keybinds ────────────────────────────────────────────────────────
 local p3 = tabPages[3]
-
 local kbBtnRefs = {}
 
 local function keybindName(kc)
@@ -518,7 +559,6 @@ end
 
 -- ─── Input ────────────────────────────────────────────────────────────────────
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    -- keybind capture (bypasses gameProcessed)
     if listeningFor and input.UserInputType == Enum.UserInputType.Keyboard then
         local kc = input.KeyCode
         if kc == Enum.KeyCode.Escape then
@@ -543,6 +583,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             end
         end
 
+        fire("ToggleWindow", function()
+            setWindowVisible(not windowVisible)
+            if windowVisible then
+                notify("UI shown", C.textSec)
+            end
+        end)
         fire("ToggleAimbot", function()
             aimbotEnabled = not aimbotEnabled
             statusDot.BackgroundColor3 = aimbotEnabled and C.green or C.red
@@ -634,7 +680,7 @@ local function updateCircle()
     end
 end
 
--- ─── Aimbot helpers (unchanged logic) ────────────────────────────────────────
+-- ─── Aimbot logic (unchanged) ────────────────────────────────────────────────
 local function isIgnoredPart(part)
     if not part or not part:IsA("BasePart") then return false end
     if part.Transparency == 1 then
@@ -698,7 +744,7 @@ end
 local function isEnemy(plr)
     if not teamCheck then return true end
     if not LocalPlayer.Team or not plr.Team then return false end
-    local neutral  = {["Menu"]=true, ["Civilian"]=true}
+    local neutral  = {["Menu"]=true,["Civilian"]=true}
     local friendly = {["Sheriff's Office"]=true,["Department of Corrections"]=true,
                       ["State Police"]=true,["VCSO-SWAT"]=true,["WeaponsTester"]=true}
     local enemy    = {["Booking"]=true,["Escapee"]=true,["Maximum Security"]=true,
@@ -725,9 +771,9 @@ local function getClosestTarget()
     local closest, dist = nil, math.huge
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character then
-            local char  = plr.Character
-            local hum   = char:FindFirstChildOfClass("Humanoid")
-            local part  = resolveAimPart(char)
+            local char = plr.Character
+            local hum  = char:FindFirstChildOfClass("Humanoid")
+            local part = resolveAimPart(char)
             if hum and hum.Health > 0 and part and isEnemy(plr) then
                 local v3, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen and isVisible(part) then
