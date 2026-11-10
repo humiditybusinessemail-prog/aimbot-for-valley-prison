@@ -1,0 +1,396 @@
+-- ESP-it
+-- Client-side ESP: chams (team color) + player name tags
+-- GUI: hideable → collapses to draggable small circle with "e"
+-- Keybind: configurable toggle for ESP master switch
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- // State
+local espEnabled   = true
+local chamsEnabled = true
+local namesEnabled = true
+
+-- // Keybind
+local espKeybind = Enum.KeyCode.X -- default
+local listeningForBind = false
+
+-- // Storage
+local espObjects = {}
+
+-- // ─── GUI ─────────────────────────────────────────────────────────────────
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ESPItUI"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ── Collapsed pill ──
+local pillDrag = Instance.new("Frame")
+pillDrag.Size = UDim2.fromOffset(32, 32)
+pillDrag.Position = UDim2.new(0.05, 0, 0.55, 0)
+pillDrag.BackgroundTransparency = 1
+pillDrag.Active = true
+pillDrag.Draggable = true
+pillDrag.Visible = false
+pillDrag.ZIndex = 10
+pillDrag.Parent = screenGui
+
+local pill = Instance.new("TextButton")
+pill.Size = UDim2.new(1, 0, 1, 0)
+pill.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+pill.Text = "e"
+pill.TextColor3 = Color3.fromRGB(0, 220, 255)
+pill.Font = Enum.Font.GothamBold
+pill.TextSize = 16
+pill.BorderSizePixel = 0
+pill.Parent = pillDrag
+Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
+local pillStroke = Instance.new("UIStroke", pill)
+pillStroke.Color = Color3.fromRGB(0, 220, 255)
+pillStroke.Thickness = 1.5
+
+-- ── Main panel (taller: 210 to fit keybind row) ──
+local panel = Instance.new("Frame")
+panel.Size = UDim2.fromOffset(200, 210)
+panel.Position = UDim2.new(0.05, 0, 0.55, 0)
+panel.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Draggable = true
+panel.Parent = screenGui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+
+-- title bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 32)
+titleBar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = panel
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 8)
+
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1, -36, 1, 0)
+titleLbl.Position = UDim2.new(0, 10, 0, 0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "ESP-it"
+titleLbl.TextColor3 = Color3.fromRGB(0, 220, 255)
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.TextSize = 15
+titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+titleLbl.Parent = titleBar
+
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.fromOffset(24, 24)
+hideBtn.Position = UDim2.new(1, -28, 0, 4)
+hideBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+hideBtn.Text = "–"
+hideBtn.TextColor3 = Color3.new(1, 1, 1)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 14
+hideBtn.Parent = titleBar
+Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(1, 0)
+
+local function makeToggle(parent, yPos, text)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -20, 0, 32)
+    btn.Position = UDim2.new(0, 10, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 13
+    btn.Parent = parent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
+end
+
+local espToggleBtn   = makeToggle(panel, 40,  "ESP: ON")
+local chamsToggleBtn = makeToggle(panel, 80,  "Chams: ON")
+local namesToggleBtn = makeToggle(panel, 120, "Names: ON")
+
+-- ── Keybind row ──
+local kbLabel = Instance.new("TextLabel")
+kbLabel.Size = UDim2.new(0, 90, 0, 32)
+kbLabel.Position = UDim2.new(0, 10, 0, 163)
+kbLabel.BackgroundTransparency = 1
+kbLabel.Text = "ESP Keybind:"
+kbLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+kbLabel.Font = Enum.Font.Gotham
+kbLabel.TextSize = 12
+kbLabel.TextXAlignment = Enum.TextXAlignment.Left
+kbLabel.Parent = panel
+
+local function keybindName(kc)
+    if kc == Enum.KeyCode.Unknown then return "---" end
+    return tostring(kc):match("KeyCode%.(.+)") or "?"
+end
+
+local kbBtn = Instance.new("TextButton")
+kbBtn.Size = UDim2.fromOffset(80, 26)
+kbBtn.Position = UDim2.new(1, -90, 0, 166)
+kbBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+kbBtn.Text = keybindName(espKeybind)
+kbBtn.TextColor3 = Color3.new(1, 1, 1)
+kbBtn.Font = Enum.Font.GothamBold
+kbBtn.TextSize = 12
+kbBtn.Parent = panel
+Instance.new("UICorner", kbBtn).CornerRadius = UDim.new(0, 6)
+
+-- clear bind button
+local kbClear = Instance.new("TextButton")
+kbClear.Size = UDim2.fromOffset(22, 22)
+kbClear.Position = UDim2.new(1, -6, 0, 168)
+kbClear.AnchorPoint = Vector2.new(1, 0)
+kbClear.BackgroundColor3 = Color3.fromRGB(90, 30, 30)
+kbClear.Text = "✕"
+kbClear.TextColor3 = Color3.new(1, 1, 1)
+kbClear.Font = Enum.Font.GothamBold
+kbClear.TextSize = 11
+kbClear.Parent = panel
+Instance.new("UICorner", kbClear).CornerRadius = UDim.new(0, 4)
+
+-- collapse / expand
+local function setUIVisible(v)
+    panel.Visible    = v
+    pillDrag.Visible = not v
+end
+setUIVisible(true)
+
+hideBtn.MouseButton1Click:Connect(function() setUIVisible(false) end)
+pill.MouseButton1Click:Connect(function()    setUIVisible(true)  end)
+
+-- // ─── Notification ────────────────────────────────────────────────────────
+
+local notifLbl = Instance.new("TextLabel")
+notifLbl.AnchorPoint = Vector2.new(0.5, 0)
+notifLbl.Position = UDim2.new(0.5, 0, 0.08, 0)
+notifLbl.Size = UDim2.fromOffset(240, 28)
+notifLbl.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+notifLbl.BackgroundTransparency = 0.3
+notifLbl.TextColor3 = Color3.new(1, 1, 1)
+notifLbl.Font = Enum.Font.GothamBold
+notifLbl.TextSize = 14
+notifLbl.TextTransparency = 1
+notifLbl.Visible = false
+notifLbl.Parent = screenGui
+Instance.new("UICorner", notifLbl).CornerRadius = UDim.new(0, 8)
+
+local function notify(text, color)
+    notifLbl.Text = text
+    notifLbl.TextColor3 = color or Color3.new(1, 1, 1)
+    notifLbl.Visible = true
+    TweenService:Create(notifLbl, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
+    task.delay(1.4, function()
+        TweenService:Create(notifLbl, TweenInfo.new(0.4), {TextTransparency = 1}):Play()
+        task.delay(0.4, function() notifLbl.Visible = false end)
+    end)
+end
+
+-- // ─── Toggle logic ────────────────────────────────────────────────────────
+
+local function refreshAllESP()
+    for _, obj in pairs(espObjects) do
+        if obj.highlight then
+            obj.highlight.Enabled = espEnabled and chamsEnabled
+        end
+        if obj.billboard then
+            obj.billboard.Enabled = espEnabled and namesEnabled
+        end
+    end
+end
+
+local function toggleESP()
+    espEnabled = not espEnabled
+    espToggleBtn.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
+    notify("ESP " .. (espEnabled and "ON" or "OFF"),
+        espEnabled and Color3.fromRGB(0, 255, 120) or Color3.fromRGB(255, 80, 80))
+    refreshAllESP()
+end
+
+espToggleBtn.MouseButton1Click:Connect(toggleESP)
+
+chamsToggleBtn.MouseButton1Click:Connect(function()
+    chamsEnabled = not chamsEnabled
+    chamsToggleBtn.Text = "Chams: " .. (chamsEnabled and "ON" or "OFF")
+    notify("Chams " .. (chamsEnabled and "ON" or "OFF"))
+    for _, obj in pairs(espObjects) do
+        if obj.highlight then
+            obj.highlight.Enabled = espEnabled and chamsEnabled
+        end
+    end
+end)
+
+namesToggleBtn.MouseButton1Click:Connect(function()
+    namesEnabled = not namesEnabled
+    namesToggleBtn.Text = "Names: " .. (namesEnabled and "ON" or "OFF")
+    notify("Names " .. (namesEnabled and "ON" or "OFF"))
+    for _, obj in pairs(espObjects) do
+        if obj.billboard then
+            obj.billboard.Enabled = espEnabled and namesEnabled
+        end
+    end
+end)
+
+-- // ─── Keybind logic ───────────────────────────────────────────────────────
+
+kbBtn.MouseButton1Click:Connect(function()
+    if listeningForBind then
+        -- cancel
+        listeningForBind = false
+        kbBtn.Text = keybindName(espKeybind)
+        kbBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        return
+    end
+    listeningForBind = true
+    kbBtn.Text = "[ press key ]"
+    kbBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 20)
+end)
+
+kbClear.MouseButton1Click:Connect(function()
+    listeningForBind = false
+    espKeybind = Enum.KeyCode.Unknown
+    kbBtn.Text = keybindName(espKeybind)
+    kbBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    notify("ESP keybind cleared")
+end)
+
+-- // ─── Input ───────────────────────────────────────────────────────────────
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- capture mode: intercepts before gameProcessed check
+    if listeningForBind and input.UserInputType == Enum.UserInputType.Keyboard then
+        local kc = input.KeyCode
+        if kc == Enum.KeyCode.Escape then
+            listeningForBind = false
+            kbBtn.Text = keybindName(espKeybind)
+            kbBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            return
+        end
+        espKeybind = kc
+        kbBtn.Text = keybindName(espKeybind)
+        kbBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        listeningForBind = false
+        notify("ESP keybind → " .. keybindName(kc), Color3.fromRGB(120, 200, 255))
+        return
+    end
+
+    if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if espKeybind ~= Enum.KeyCode.Unknown and input.KeyCode == espKeybind then
+            toggleESP()
+        end
+    end
+end)
+
+-- // ─── ESP Core ────────────────────────────────────────────────────────────
+
+local function getTeamColor(plr)
+    if plr.Team and plr.TeamColor then
+        return plr.TeamColor.Color
+    end
+    return Color3.fromRGB(200, 200, 200)
+end
+
+local function buildESP(plr)
+    local char = plr.Character
+    if not char then return end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "ESPHighlight"
+    hl.FillColor = getTeamColor(plr)
+    hl.OutlineColor = getTeamColor(plr)
+    hl.FillTransparency = 0.45
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Enabled = espEnabled and chamsEnabled
+    hl.Parent = char
+
+    local hrp = char:WaitForChild("HumanoidRootPart", 4)
+    local billboard, nameLabel
+    if hrp then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "ESPBillboard"
+        billboard.Size = UDim2.fromOffset(120, 20)
+        billboard.StudsOffset = Vector3.new(0, 3.2, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Enabled = espEnabled and namesEnabled
+        billboard.Parent = hrp
+
+        nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = plr.DisplayName
+        nameLabel.TextColor3 = getTeamColor(plr)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 13
+        nameLabel.TextStrokeTransparency = 0.4
+        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        nameLabel.Parent = billboard
+    end
+
+    espObjects[plr] = { highlight = hl, billboard = billboard, nameLabel = nameLabel }
+end
+
+local function removeESP(plr)
+    local obj = espObjects[plr]
+    if not obj then return end
+    if obj.highlight and obj.highlight.Parent then obj.highlight:Destroy() end
+    if obj.billboard and obj.billboard.Parent then obj.billboard:Destroy() end
+    espObjects[plr] = nil
+end
+
+local function refreshColors(plr)
+    local obj = espObjects[plr]
+    if not obj then return end
+    local col = getTeamColor(plr)
+    if obj.highlight then
+        obj.highlight.FillColor    = col
+        obj.highlight.OutlineColor = col
+    end
+    if obj.nameLabel then
+        obj.nameLabel.TextColor3 = col
+    end
+end
+
+local function hookPlayer(plr)
+    if plr == LocalPlayer then return end
+
+    local function onChar()
+        task.wait(0.2)
+        removeESP(plr)
+        buildESP(plr)
+    end
+
+    if plr.Character then onChar() end
+    plr.CharacterAdded:Connect(onChar)
+
+    plr:GetPropertyChangedSignal("Team"):Connect(function()
+        refreshColors(plr)
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do
+    hookPlayer(plr)
+end
+
+Players.PlayerAdded:Connect(hookPlayer)
+
+Players.PlayerRemoving:Connect(function(plr)
+    removeESP(plr)
+end)
+
+RunService.Heartbeat:Connect(function()
+    for plr in pairs(espObjects) do
+        if plr.Team then
+            refreshColors(plr)
+        end
+    end
+end)
