@@ -1,4 +1,4 @@
--- Aim-it | Revamped UI
+-- Valley Aimbot | Revamped UI
 -- Tabbed: Aimbot / Settings / Keybinds
 -- Accent: amber #f0a500 | Base: #111113
 
@@ -154,7 +154,7 @@ SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 SG.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 -- ─── Main window ─────────────────────────────────────────────────────────────
-local WIN_W, WIN_H = 260, 340
+local WIN_W, WIN_H = 260, 380
 
 local window = makeFrame(SG, UDim2.fromOffset(WIN_W, WIN_H),
     UDim2.new(0.04, 0, 0.28, 0), C.base)
@@ -172,26 +172,24 @@ applyCorner(accentBar, 8)
 local titleRow = makeFrame(window, UDim2.new(1, 0, 0, 36),
     UDim2.fromOffset(0, 2), C.base, 2)
 
-makeLabel(titleRow, UDim2.new(1, -40, 1, 0), UDim2.fromOffset(14, 0),
-    "Aim-it", C.accent, 15, Enum.Font.GothamBold, 3)
+makeLabel(titleRow, UDim2.new(1, -60, 1, 0), UDim2.fromOffset(14, 0),
+    "Valley Aimbot", C.accent, 13, Enum.Font.GothamBold, 3)
 
 local statusDot = Instance.new("Frame")
 statusDot.Size = UDim2.fromOffset(8, 8)
-statusDot.Position = UDim2.new(0, 72, 0.5, -4)
+statusDot.Position = UDim2.new(0, 118, 0.5, -4)
 statusDot.BackgroundColor3 = C.red
 statusDot.BorderSizePixel = 0
 statusDot.ZIndex = 3
 statusDot.Parent = titleRow
 applyCorner(statusDot, 4)
 
--- minimize button (yellow, left of close)
 local minimizeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
     UDim2.new(1, -54, 0.5, -11), "–", 3)
 minimizeBtn.TextSize = 14
 minimizeBtn.BackgroundColor3 = C.yellow
 minimizeBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
 
--- close button
 local closeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
     UDim2.new(1, -28, 0.5, -11), "✕", 3)
 closeBtn.TextSize = 12
@@ -270,13 +268,8 @@ local function setWindowVisible(v)
     window.Visible = v
 end
 
-closeBtn.MouseButton1Click:Connect(function()
-    setWindowVisible(false)
-end)
-
-minimizeBtn.MouseButton1Click:Connect(function()
-    setWindowVisible(false)
-end)
+closeBtn.MouseButton1Click:Connect(function()    setWindowVisible(false) end)
+minimizeBtn.MouseButton1Click:Connect(function() setWindowVisible(false) end)
 
 -- ─── Notification toast ───────────────────────────────────────────────────────
 local toast = Instance.new("TextLabel")
@@ -405,9 +398,46 @@ nextBtn.MouseButton1Click:Connect(function()
     notify("Aim → " .. AIM_PARTS[aimPartIndex])
 end)
 
+-- ESP Loader
+local espLoaderRow = makeFrame(p1, UDim2.new(1, 0, 0, ROW_H),
+    UDim2.fromOffset(0, rowY(7)), C.surface, 3)
+applyCorner(espLoaderRow, 6)
+
+makeLabel(espLoaderRow, UDim2.new(0, 100, 1, 0), UDim2.fromOffset(10, 0),
+    "ESP Script", C.textPri, 13, Enum.Font.Gotham, 4)
+
+local espLoadBtn = makeBtn(espLoaderRow, UDim2.fromOffset(80, 22),
+    UDim2.new(1, -88, 0.5, -11), "Load ESP", 4)
+espLoadBtn.BackgroundColor3 = C.accentD
+espLoadBtn.TextColor3 = C.accent
+espLoadBtn.Font = Enum.Font.GothamSemibold
+
+local espLoaded = false
+espLoadBtn.MouseButton1Click:Connect(function()
+    if espLoaded then
+        notify("ESP already loaded", C.textSec)
+        return
+    end
+    notify("Loading ESP...", C.yellow)
+    local ok, err = pcall(function()
+        loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/humiditybusinessemail-prog/aimbot-for-valley-prison/refs/heads/main/esp"
+        ))()
+    end)
+    if ok then
+        espLoaded = true
+        espLoadBtn.Text = "Loaded ✓"
+        espLoadBtn.BackgroundColor3 = Color3.fromRGB(20, 60, 30)
+        espLoadBtn.TextColor3 = C.green
+        notify("ESP loaded", C.green)
+    else
+        notify("ESP load failed", C.red)
+        warn("ESP loader:", err)
+    end
+end)
+
 -- ─── Page 2: Settings — sliders (drag fix) ───────────────────────────────────
 local p2 = tabPages[2]
-local anySliderDragging = false  -- shared flag: disables window.Draggable while sliding
 
 local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, onChanged)
     local row = makeFrame(page, UDim2.new(1, 0, 0, 44),
@@ -426,7 +456,6 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
         UDim2.fromOffset(10, 32), C.raised, 4)
     applyCorner(trackBg, 3)
 
-    -- clickable hit area: taller than visual track so it's easy to grab
     local hitArea = Instance.new("TextButton")
     hitArea.Size = UDim2.new(1, 0, 0, 20)
     hitArea.Position = UDim2.fromOffset(0, -7)
@@ -440,7 +469,6 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
         UDim2.fromOffset(0, 0), C.accent, 5)
     applyCorner(fill, 3)
 
-    -- knob dot
     local knob = Instance.new("Frame")
     knob.Size = UDim2.fromOffset(12, 12)
     knob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -468,8 +496,7 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
 
     hitArea.MouseButton1Down:Connect(function()
         dragging = true
-        anySliderDragging = true
-        window.Draggable = false  -- prevent window drag stealing the input
+        window.Draggable = false
         local mouse = UserInputService:GetMouseLocation()
         updateFromX(mouse.X)
     end)
@@ -483,8 +510,7 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
     UserInputService.InputEnded:Connect(function(inp)
         if dragging and inp.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
-            anySliderDragging = false
-            window.Draggable = true  -- restore window drag
+            window.Draggable = true
         end
     end)
 end
@@ -585,9 +611,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
         fire("ToggleWindow", function()
             setWindowVisible(not windowVisible)
-            if windowVisible then
-                notify("UI shown", C.textSec)
-            end
+            if windowVisible then notify("UI shown", C.textSec) end
         end)
         fire("ToggleAimbot", function()
             aimbotEnabled = not aimbotEnabled
@@ -680,7 +704,7 @@ local function updateCircle()
     end
 end
 
--- ─── Aimbot logic (unchanged) ────────────────────────────────────────────────
+-- ─── Aimbot logic ────────────────────────────────────────────────────────────
 local function isIgnoredPart(part)
     if not part or not part:IsA("BasePart") then return false end
     if part.Transparency == 1 then
