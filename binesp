@@ -1,0 +1,440 @@
+-- BinESP-it
+-- Chams available garbage bins in Valley Prison
+-- Available = Stocked attribute true → green highlight
+-- On cooldown = Stocked attribute false → red highlight
+
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ─── Config ──────────────────────────────────────────────────────────────────
+local BIN_FOLDER = "unorganized map bins"
+local BIN_NAMES  = {"BinGreen", "BinRed", "BinBlue"}
+
+-- ─── Palette ─────────────────────────────────────────────────────────────────
+local C = {
+    base      = Color3.fromRGB(17,  17,  19),
+    surface   = Color3.fromRGB(24,  24,  27),
+    raised    = Color3.fromRGB(32,  32,  36),
+    border    = Color3.fromRGB(48,  48,  54),
+    accent    = Color3.fromRGB(80,  210, 120),
+    accentD   = Color3.fromRGB(20,  70,  40),
+    textPri   = Color3.fromRGB(225, 225, 228),
+    textSec   = Color3.fromRGB(120, 120, 130),
+    green     = Color3.fromRGB(80,  210, 120),
+    red       = Color3.fromRGB(220, 70,  70),
+    yellow    = Color3.fromRGB(255, 210, 0),
+    available = Color3.fromRGB(80,  210, 120),
+    cooldown  = Color3.fromRGB(220, 70,  70),
+}
+
+-- ─── UI helpers ──────────────────────────────────────────────────────────────
+local function applyCorner(inst, r)
+    Instance.new("UICorner", inst).CornerRadius = UDim.new(0, r)
+end
+
+local function applyStroke(inst, color, thickness)
+    local s = Instance.new("UIStroke", inst)
+    s.Color = color
+    s.Thickness = thickness
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+end
+
+local function makeFrame(parent, size, pos, color, zindex)
+    local f = Instance.new("Frame")
+    f.Size = size; f.Position = pos
+    f.BackgroundColor3 = color or C.surface
+    f.BorderSizePixel = 0
+    f.ZIndex = zindex or 1
+    f.Parent = parent
+    return f
+end
+
+local function makeLabel(parent, size, pos, text, textColor, fontSize, font, zindex)
+    local l = Instance.new("TextLabel")
+    l.Size = size; l.Position = pos
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.TextColor3 = textColor or C.textPri
+    l.TextSize = fontSize or 13
+    l.Font = font or Enum.Font.Gotham
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.ZIndex = zindex or 2
+    l.Parent = parent
+    return l
+end
+
+local function makeBtn(parent, size, pos, text, bgColor, textColor, zindex)
+    local b = Instance.new("TextButton")
+    b.Size = size; b.Position = pos
+    b.BackgroundColor3 = bgColor or C.raised
+    b.Text = text
+    b.TextColor3 = textColor or C.textPri
+    b.TextSize = 13
+    b.Font = Enum.Font.Gotham
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.ZIndex = zindex or 2
+    b.Parent = parent
+    applyCorner(b, 5)
+    return b
+end
+
+local function makePillToggle(parent, pos, zindex)
+    local track = Instance.new("Frame")
+    track.Size = UDim2.fromOffset(42, 22)
+    track.Position = pos
+    track.BackgroundColor3 = C.raised
+    track.BorderSizePixel = 0
+    track.ZIndex = zindex or 2
+    track.Parent = parent
+    applyCorner(track, 11)
+    applyStroke(track, C.border, 1)
+
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(16, 16)
+    knob.Position = UDim2.fromOffset(3, 3)
+    knob.BackgroundColor3 = C.textSec
+    knob.BorderSizePixel = 0
+    knob.ZIndex = (zindex or 2) + 1
+    knob.Parent = track
+    applyCorner(knob, 8)
+
+    local function setValue(on)
+        TweenService:Create(track, TweenInfo.new(0.15), {
+            BackgroundColor3 = on and C.accentD or C.raised
+        }):Play()
+        TweenService:Create(knob, TweenInfo.new(0.15), {
+            Position = on and UDim2.fromOffset(23, 3) or UDim2.fromOffset(3, 3),
+            BackgroundColor3 = on and C.accent or C.textSec,
+        }):Play()
+    end
+
+    return track, knob, setValue
+end
+
+-- ─── ScreenGui ───────────────────────────────────────────────────────────────
+local SG = Instance.new("ScreenGui")
+SG.Name = "BinESPUI"
+SG.ResetOnSpawn = false
+SG.IgnoreGuiInset = true
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+SG.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- ─── Collapsed pill ──────────────────────────────────────────────────────────
+local pillDrag = Instance.new("Frame")
+pillDrag.Size = UDim2.fromOffset(32, 32)
+pillDrag.Position = UDim2.new(0.2, 0, 0.55, 0)
+pillDrag.BackgroundTransparency = 1
+pillDrag.Active = true
+pillDrag.Draggable = true
+pillDrag.Visible = false
+pillDrag.ZIndex = 10
+pillDrag.Parent = SG
+
+local pill = Instance.new("TextButton")
+pill.Size = UDim2.new(1, 0, 1, 0)
+pill.BackgroundColor3 = C.accentD
+pill.Text = "b"
+pill.TextColor3 = C.accent
+pill.Font = Enum.Font.GothamBold
+pill.TextSize = 16
+pill.BorderSizePixel = 0
+pill.Parent = pillDrag
+applyCorner(pill, 16)
+applyStroke(pill, C.accent, 1.5)
+
+-- ─── Main panel ──────────────────────────────────────────────────────────────
+local WIN_W, WIN_H = 220, 230
+
+local window = makeFrame(SG, UDim2.fromOffset(WIN_W, WIN_H),
+    UDim2.new(0.2, 0, 0.55, 0), C.base, 1)
+window.Active = true
+window.Draggable = true
+applyCorner(window, 8)
+applyStroke(window, C.border, 1)
+
+local accentBar = makeFrame(window, UDim2.new(1, 0, 0, 2),
+    UDim2.fromOffset(0, 0), C.accent, 3)
+applyCorner(accentBar, 8)
+
+-- title row
+local titleRow = makeFrame(window, UDim2.new(1, 0, 0, 34),
+    UDim2.fromOffset(0, 2), C.base, 2)
+
+makeLabel(titleRow, UDim2.new(1, -60, 1, 0), UDim2.fromOffset(12, 0),
+    "Bin ESP", C.accent, 14, Enum.Font.GothamBold, 3)
+
+local statusDot = Instance.new("Frame")
+statusDot.Size = UDim2.fromOffset(8, 8)
+statusDot.Position = UDim2.new(0, 72, 0.5, -4)
+statusDot.BackgroundColor3 = C.green
+statusDot.BorderSizePixel = 0
+statusDot.ZIndex = 3
+statusDot.Parent = titleRow
+applyCorner(statusDot, 4)
+
+local minimizeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
+    UDim2.new(1, -50, 0.5, -11), "–", C.yellow, Color3.fromRGB(30,30,30), 3)
+minimizeBtn.TextSize = 14
+
+local closeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
+    UDim2.new(1, -24, 0.5, -11), "✕", C.red, Color3.fromRGB(30,30,30), 3)
+closeBtn.TextSize = 12
+
+-- ─── Toggle rows ─────────────────────────────────────────────────────────────
+local ROW_H  = 32
+local ROW_GAP = 6
+local function rowY(n) return 42 + (n-1) * (ROW_H + ROW_GAP) end
+
+local espEnabled       = true
+local showAvailable    = true
+local showCooldown     = true
+local billboardEnabled = true
+
+local toggleSetters = {}
+
+local function addToggleRow(n, labelText, initVal, onChange)
+    local row = makeFrame(window, UDim2.new(1, -16, 0, ROW_H),
+        UDim2.fromOffset(8, rowY(n)), C.surface, 3)
+    applyCorner(row, 6)
+    makeLabel(row, UDim2.new(1, -54, 1, 0), UDim2.fromOffset(10, 0),
+        labelText, C.textPri, 13, Enum.Font.Gotham, 4)
+    local track, _, setValue = makePillToggle(row, UDim2.new(1, -50, 0.5, -11), 4)
+    setValue(initVal)
+    track.InputBegan:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            local v = onChange()
+            setValue(v)
+        end
+    end)
+    toggleSetters[labelText] = setValue
+end
+
+addToggleRow(1, "Bin ESP", espEnabled, function()
+    espEnabled = not espEnabled
+    statusDot.BackgroundColor3 = espEnabled and C.green or C.textSec
+    return espEnabled
+end)
+
+addToggleRow(2, "Show Available", showAvailable, function()
+    showAvailable = not showAvailable
+    return showAvailable
+end)
+
+addToggleRow(3, "Show Cooldown", showCooldown, function()
+    showCooldown = not showCooldown
+    return showCooldown
+end)
+
+addToggleRow(4, "Name Tags", billboardEnabled, function()
+    billboardEnabled = not billboardEnabled
+    return billboardEnabled
+end)
+
+-- available count label
+local countRow = makeFrame(window, UDim2.new(1, -16, 0, 28),
+    UDim2.fromOffset(8, rowY(5)), C.surface, 3)
+applyCorner(countRow, 6)
+
+makeLabel(countRow, UDim2.new(0.6, 0, 1, 0), UDim2.fromOffset(10, 0),
+    "Available", C.textSec, 12, Enum.Font.Gotham, 4)
+
+local availCountLbl = makeLabel(countRow, UDim2.new(0.4, -10, 1, 0),
+    UDim2.new(0.6, 0, 0, 0), "0", C.accent, 13, Enum.Font.GothamBold, 4)
+availCountLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+-- ─── Visibility ──────────────────────────────────────────────────────────────
+local windowVisible = true
+local function setVisible(v)
+    windowVisible = v
+    window.Visible = v
+    pillDrag.Visible = not v
+end
+closeBtn.MouseButton1Click:Connect(function()    setVisible(false) end)
+minimizeBtn.MouseButton1Click:Connect(function() setVisible(false) end)
+pill.MouseButton1Click:Connect(function()        setVisible(true)  end)
+
+-- ─── Toast ───────────────────────────────────────────────────────────────────
+local toast = Instance.new("TextLabel")
+toast.AnchorPoint = Vector2.new(0.5, 0)
+toast.Position = UDim2.new(0.5, 0, 0.07, 0)
+toast.Size = UDim2.fromOffset(220, 26)
+toast.BackgroundColor3 = C.raised
+toast.BackgroundTransparency = 0.1
+toast.TextColor3 = C.textPri
+toast.Font = Enum.Font.GothamSemibold
+toast.TextSize = 13
+toast.TextTransparency = 1
+toast.Visible = false
+toast.ZIndex = 10
+toast.Parent = SG
+applyCorner(toast, 6)
+applyStroke(toast, C.border, 1)
+
+local function notify(text, color)
+    toast.Text = "  " .. text
+    toast.TextColor3 = color or C.textPri
+    toast.Visible = true
+    TweenService:Create(toast, TweenInfo.new(0.18), {TextTransparency = 0}):Play()
+    task.delay(1.5, function()
+        TweenService:Create(toast, TweenInfo.new(0.35), {TextTransparency = 1}):Play()
+        task.delay(0.35, function() toast.Visible = false end)
+    end)
+end
+
+-- ─── ESP Core ────────────────────────────────────────────────────────────────
+local trackedBins = {}
+
+local function getBinFolder()
+    return workspace:FindFirstChild(BIN_FOLDER)
+end
+
+-- reads Stocked attribute — true = available, false/nil = cooldown
+local function isAvailable(binModel)
+    local stocked = binModel:GetAttribute("Stocked")
+    if stocked == nil then return false end
+    return stocked == true
+end
+
+local function buildBinESP(binModel)
+    if trackedBins[binModel] then return end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "BinESPHL"
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.4
+    hl.OutlineTransparency = 0
+    hl.Parent = binModel
+
+    local rootPart = binModel:FindFirstChildWhichIsA("BasePart")
+    local billboard, tagLabel, statusLabel
+
+    if rootPart then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "BinESPBB"
+        billboard.Size = UDim2.fromOffset(120, 36)
+        billboard.StudsOffset = Vector3.new(0, 4, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = rootPart
+
+        tagLabel = Instance.new("TextLabel")
+        tagLabel.Size = UDim2.new(1, 0, 0.55, 0)
+        tagLabel.BackgroundTransparency = 1
+        tagLabel.Text = binModel.Name
+        tagLabel.TextColor3 = C.textPri
+        tagLabel.Font = Enum.Font.GothamBold
+        tagLabel.TextSize = 13
+        tagLabel.TextStrokeTransparency = 0.3
+        tagLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        tagLabel.Parent = billboard
+
+        statusLabel = Instance.new("TextLabel")
+        statusLabel.Size = UDim2.new(1, 0, 0.45, 0)
+        statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
+        statusLabel.BackgroundTransparency = 1
+        statusLabel.Text = "Available"
+        statusLabel.TextColor3 = C.green
+        statusLabel.Font = Enum.Font.GothamSemibold
+        statusLabel.TextSize = 11
+        statusLabel.TextStrokeTransparency = 0.3
+        statusLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        statusLabel.Parent = billboard
+    end
+
+    -- watch Stocked attribute changes
+    local attrConn = binModel:GetAttributeChangedSignal("Stocked"):Connect(function()
+        -- heartbeat sweep handles the visual update
+    end)
+
+    trackedBins[binModel] = {
+        highlight   = hl,
+        billboard   = billboard,
+        tagLabel    = tagLabel,
+        statusLabel = statusLabel,
+        attrConn    = attrConn,
+    }
+end
+
+local function removeBinESP(binModel)
+    local t = trackedBins[binModel]
+    if not t then return end
+    if t.highlight and t.highlight.Parent then t.highlight:Destroy() end
+    if t.billboard and t.billboard.Parent then t.billboard:Destroy() end
+    if t.attrConn then t.attrConn:Disconnect() end
+    trackedBins[binModel] = nil
+end
+
+local function scanBins()
+    local folder = getBinFolder()
+    if not folder then return end
+
+    local function tryBuild(inst)
+        if not (inst:IsA("Model") or inst:IsA("BasePart")) then return end
+        for _, binName in ipairs(BIN_NAMES) do
+            if inst.Name == binName then
+                buildBinESP(inst)
+                return
+            end
+        end
+    end
+
+    -- walk all descendants of the folder so nested groups are covered
+    for _, desc in ipairs(folder:GetDescendants()) do
+        tryBuild(desc)
+    end
+end
+
+task.defer(scanBins)
+
+-- watch for any new bins added at runtime
+local folder = getBinFolder()
+if folder then
+    folder.DescendantAdded:Connect(function(desc)
+        task.defer(function() scanBins() end)
+    end)
+end
+
+-- ─── Heartbeat: sync highlight colors ────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    if not espEnabled then
+        for _, t in pairs(trackedBins) do
+            if t.highlight then t.highlight.Enabled = false end
+            if t.billboard then t.billboard.Enabled = false end
+        end
+        availCountLbl.Text = "0"
+        return
+    end
+
+    local availableCount = 0
+
+    for binModel, t in pairs(trackedBins) do
+        if not binModel.Parent then
+            removeBinESP(binModel)
+        else
+            local avail = isAvailable(binModel)
+            if avail then availableCount += 1 end
+
+            local shouldShow = (avail and showAvailable) or (not avail and showCooldown)
+
+            if t.highlight then
+                t.highlight.Enabled      = shouldShow
+                t.highlight.FillColor    = avail and C.available or C.cooldown
+                t.highlight.OutlineColor = avail and C.available or C.cooldown
+            end
+
+            if t.billboard then
+                t.billboard.Enabled = billboardEnabled and shouldShow
+            end
+
+            if t.statusLabel then
+                t.statusLabel.Text       = avail and "Available" or "Cooldown"
+                t.statusLabel.TextColor3 = avail and C.green or C.red
+            end
+        end
+    end
+
+    availCountLbl.Text = tostring(availableCount)
+end)
