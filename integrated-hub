@@ -1,6 +1,6 @@
--- Valley Aimbot | Revamped UI
--- Tabbed: Aimbot / Settings / Keybinds
--- Accent: amber #f0a500 | Base: #111113
+-- Valley Prison Hub
+-- Aimbot + Player ESP + Bin ESP, all in one
+-- Tabs: Aimbot | ESP | Bins | Settings | Keybinds
 
 local Players          = game:GetService("Players")
 local RunService       = game:GetService("RunService")
@@ -11,7 +11,7 @@ local Stats            = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = workspace.CurrentCamera
 
--- ─── State ───────────────────────────────────────────────────────────────────
+-- ─── Aimbot State ────────────────────────────────────────────────────────────
 local aimbotEnabled = false
 local teamCheck     = true
 local wallCheck     = true
@@ -25,42 +25,64 @@ local lockedTarget  = nil
 local AIM_PARTS    = {"Head","HumanoidRootPart","UpperTorso","Torso","LowerTorso"}
 local aimPartIndex = 1
 
+-- ─── Player ESP State ────────────────────────────────────────────────────────
+local playerESPEnabled = true
+local playerChams      = true
+local playerNames      = true
+local playerESPObjects = {}
+
+-- ─── Bin ESP State ────────────────────────────────────────────────────────────
+local BIN_FOLDER       = "unorganized map bins"
+local BIN_NAMES        = {"BinGreen", "BinRed", "BinBlue"}
+local binESPEnabled    = true
+local showAvailable    = true
+local showCooldown     = true
+local billboardEnabled = true
+local trackedBins      = {}
+
+-- ─── Keybinds ────────────────────────────────────────────────────────────────
 local Keybinds = {
-    ToggleAimbot  = Enum.KeyCode.V,
-    ToggleTeam    = Enum.KeyCode.RightBracket,
-    ToggleWall    = Enum.KeyCode.LeftBracket,
-    TogglePredict = Enum.KeyCode.Unknown,
-    ToggleFOVVis  = Enum.KeyCode.Unknown,
-    CycleAimPart  = Enum.KeyCode.Unknown,
-    ToggleWindow  = Enum.KeyCode.RightShift,
+    ToggleAimbot    = Enum.KeyCode.V,
+    ToggleTeam      = Enum.KeyCode.RightBracket,
+    ToggleWall      = Enum.KeyCode.LeftBracket,
+    TogglePredict   = Enum.KeyCode.Unknown,
+    ToggleFOVVis    = Enum.KeyCode.Minus,
+    CycleAimPart    = Enum.KeyCode.Unknown,
+    ToggleWindow    = Enum.KeyCode.RightShift,
+    TogglePlayerESP = Enum.KeyCode.Equals,
+    ToggleBinESP    = Enum.KeyCode.Unknown,
 }
 local KeybindMeta = {
-    {key="ToggleAimbot",  label="Aimbot"},
-    {key="ToggleTeam",    label="Team Check"},
-    {key="ToggleWall",    label="Wall Check"},
-    {key="TogglePredict", label="Auto-Predict"},
-    {key="ToggleFOVVis",  label="FOV Visible"},
-    {key="CycleAimPart",  label="Cycle Aim Part"},
-    {key="ToggleWindow",  label="Show/Hide UI"},
+    {key="ToggleAimbot",    label="Aimbot"},
+    {key="ToggleTeam",      label="Team Check"},
+    {key="ToggleWall",      label="Wall Check"},
+    {key="TogglePredict",   label="Auto-Predict"},
+    {key="ToggleFOVVis",    label="FOV Visible"},
+    {key="CycleAimPart",    label="Cycle Aim Part"},
+    {key="ToggleWindow",    label="Show/Hide UI"},
+    {key="TogglePlayerESP", label="Player ESP"},
+    {key="ToggleBinESP",    label="Bin ESP"},
 }
 local listeningFor = nil
 
 -- ─── Palette ─────────────────────────────────────────────────────────────────
 local C = {
-    base    = Color3.fromRGB(17,  17,  19),
-    surface = Color3.fromRGB(24,  24,  27),
-    raised  = Color3.fromRGB(32,  32,  36),
-    border  = Color3.fromRGB(48,  48,  54),
-    accent  = Color3.fromRGB(240, 165, 0),
-    accentD = Color3.fromRGB(100, 68,  0),
-    textPri = Color3.fromRGB(225, 225, 228),
-    textSec = Color3.fromRGB(120, 120, 130),
-    green   = Color3.fromRGB(80,  210, 120),
-    red     = Color3.fromRGB(220, 70,  70),
-    yellow  = Color3.fromRGB(255, 210, 0),
+    base      = Color3.fromRGB(17,  17,  19),
+    surface   = Color3.fromRGB(24,  24,  27),
+    raised    = Color3.fromRGB(32,  32,  36),
+    border    = Color3.fromRGB(48,  48,  54),
+    accent    = Color3.fromRGB(240, 165, 0),
+    accentD   = Color3.fromRGB(100, 68,  0),
+    textPri   = Color3.fromRGB(225, 225, 228),
+    textSec   = Color3.fromRGB(120, 120, 130),
+    green     = Color3.fromRGB(80,  210, 120),
+    red       = Color3.fromRGB(220, 70,  70),
+    yellow    = Color3.fromRGB(255, 210, 0),
+    available = Color3.fromRGB(80,  210, 120),
+    cooldown  = Color3.fromRGB(220, 70,  70),
 }
 
--- ─── UI helpers ──────────────────────────────────────────────────────────────
+-- ─── UI Helpers ──────────────────────────────────────────────────────────────
 local function applyCorner(inst, r)
     Instance.new("UICorner", inst).CornerRadius = UDim.new(0, r)
 end
@@ -147,14 +169,14 @@ end
 
 -- ─── Root ScreenGui ───────────────────────────────────────────────────────────
 local SG = Instance.new("ScreenGui")
-SG.Name = "AimItUI"
+SG.Name = "ValleyPrisonHub"
 SG.ResetOnSpawn = false
 SG.IgnoreGuiInset = true
 SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 SG.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- ─── Main window ─────────────────────────────────────────────────────────────
-local WIN_W, WIN_H = 260, 380
+-- ─── Main Window ─────────────────────────────────────────────────────────────
+local WIN_W, WIN_H = 280, 400
 
 local window = makeFrame(SG, UDim2.fromOffset(WIN_W, WIN_H),
     UDim2.new(0.04, 0, 0.28, 0), C.base)
@@ -168,16 +190,16 @@ local accentBar = makeFrame(window, UDim2.new(1, 0, 0, 2),
     UDim2.fromOffset(0, 0), C.accent, 3)
 applyCorner(accentBar, 8)
 
--- ── Title row ────────────────────────────────────────────────────────────────
+-- title row
 local titleRow = makeFrame(window, UDim2.new(1, 0, 0, 36),
     UDim2.fromOffset(0, 2), C.base, 2)
 
 makeLabel(titleRow, UDim2.new(1, -60, 1, 0), UDim2.fromOffset(14, 0),
-    "Valley Aimbot", C.accent, 13, Enum.Font.GothamBold, 3)
+    "Valley Prison Hub", C.accent, 13, Enum.Font.GothamBold, 3)
 
 local statusDot = Instance.new("Frame")
 statusDot.Size = UDim2.fromOffset(8, 8)
-statusDot.Position = UDim2.new(0, 118, 0.5, -4)
+statusDot.Position = UDim2.new(0, 148, 0.5, -4)
 statusDot.BackgroundColor3 = C.red
 statusDot.BorderSizePixel = 0
 statusDot.ZIndex = 3
@@ -185,24 +207,25 @@ statusDot.Parent = titleRow
 applyCorner(statusDot, 4)
 
 local minimizeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
-    UDim2.new(1, -54, 0.5, -11), "–", 3)
-minimizeBtn.TextSize = 14
+    UDim2.new(1, -54, 0.5, -11), "-", 3)
+minimizeBtn.TextSize = 16
 minimizeBtn.BackgroundColor3 = C.yellow
 minimizeBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
 
 local closeBtn = makeBtn(titleRow, UDim2.fromOffset(22, 22),
-    UDim2.new(1, -28, 0.5, -11), "✕", 3)
-closeBtn.TextSize = 12
+    UDim2.new(1, -28, 0.5, -11), "x", 3)
+closeBtn.TextSize = 13
+closeBtn.Font = Enum.Font.GothamBold
 closeBtn.BackgroundColor3 = C.red
 closeBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
 
--- ── Tab bar ───────────────────────────────────────────────────────────────────
-local TAB_Y = 38
-local tabBar = makeFrame(window, UDim2.new(1, -16, 0, 28),
+-- ─── Tab Bar ─────────────────────────────────────────────────────────────────
+local TAB_Y   = 38
+local tabBar  = makeFrame(window, UDim2.new(1, -16, 0, 28),
     UDim2.fromOffset(8, TAB_Y), C.raised, 2)
 applyCorner(tabBar, 6)
 
-local TAB_NAMES = {"Aimbot", "Settings", "Keybinds"}
+local TAB_NAMES = {"Aimbot", "ESP", "Bins", "Settings", "Keybinds"}
 local tabBtns   = {}
 local tabPages  = {}
 
@@ -213,7 +236,7 @@ for i, name in ipairs(TAB_NAMES) do
     btn.BackgroundTransparency = 1
     btn.Text = name
     btn.TextColor3 = C.textSec
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.Font = Enum.Font.GothamSemibold
     btn.BorderSizePixel = 0
     btn.AutoButtonColor = false
@@ -255,27 +278,23 @@ local function switchTab(idx)
     }):Play()
 end
 switchTab(1)
-
 for i, btn in ipairs(tabBtns) do
     btn.MouseButton1Click:Connect(function() switchTab(i) end)
 end
 
--- ── Window visibility ────────────────────────────────────────────────────────
 local windowVisible = true
-
 local function setWindowVisible(v)
     windowVisible = v
     window.Visible = v
 end
-
 closeBtn.MouseButton1Click:Connect(function()    setWindowVisible(false) end)
 minimizeBtn.MouseButton1Click:Connect(function() setWindowVisible(false) end)
 
--- ─── Notification toast ───────────────────────────────────────────────────────
+-- ─── Toast ───────────────────────────────────────────────────────────────────
 local toast = Instance.new("TextLabel")
 toast.AnchorPoint = Vector2.new(0.5, 0)
 toast.Position = UDim2.new(0.5, 0, 0.07, 0)
-toast.Size = UDim2.fromOffset(230, 26)
+toast.Size = UDim2.fromOffset(240, 26)
 toast.BackgroundColor3 = C.raised
 toast.BackgroundTransparency = 0.1
 toast.TextColor3 = C.textPri
@@ -299,8 +318,7 @@ local function notify(text, color)
     end)
 end
 
--- ─── Page 1: Aimbot ───────────────────────────────────────────────────────────
-local p1 = tabPages[1]
+-- ─── Shared Row Builders ─────────────────────────────────────────────────────
 local ROW_H  = 32
 local ROW_GAP = 6
 local function rowY(n) return (n-1) * (ROW_H + ROW_GAP) end
@@ -311,23 +329,21 @@ local function addToggleRow(page, n, labelText, initVal, onChange)
     local row = makeFrame(page, UDim2.new(1, 0, 0, ROW_H),
         UDim2.fromOffset(0, rowY(n)), C.surface, 3)
     applyCorner(row, 6)
-
     makeLabel(row, UDim2.new(1, -54, 1, 0), UDim2.fromOffset(10, 0),
         labelText, C.textPri, 13, Enum.Font.Gotham, 4)
-
-    local track, _, setValue = makePillToggle(row,
-        UDim2.new(1, -50, 0.5, -11), 4)
+    local track, _, setValue = makePillToggle(row, UDim2.new(1, -50, 0.5, -11), 4)
     setValue(initVal)
-
     track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             local newVal = onChange()
             setValue(newVal)
         end
     end)
-
     toggleSetters[labelText] = setValue
 end
+
+-- ─── Tab 1: Aimbot ───────────────────────────────────────────────────────────
+local p1 = tabPages[1]
 
 addToggleRow(p1, 1, "Aimbot", aimbotEnabled, function()
     aimbotEnabled = not aimbotEnabled
@@ -365,19 +381,15 @@ end)
 local aimRow = makeFrame(p1, UDim2.new(1, 0, 0, ROW_H),
     UDim2.fromOffset(0, rowY(6)), C.surface, 3)
 applyCorner(aimRow, 6)
-
 makeLabel(aimRow, UDim2.new(0, 100, 1, 0), UDim2.fromOffset(10, 0),
     "Aim Part", C.textPri, 13, Enum.Font.Gotham, 4)
-
 local aimPartLbl = makeLabel(aimRow, UDim2.new(0, 90, 1, 0),
-    UDim2.new(1, -140, 0, 0),
-    AIM_PARTS[aimPartIndex], C.accent, 12, Enum.Font.GothamSemibold, 4)
+    UDim2.new(1, -140, 0, 0), AIM_PARTS[aimPartIndex], C.accent, 12,
+    Enum.Font.GothamSemibold, 4)
 aimPartLbl.TextXAlignment = Enum.TextXAlignment.Right
-
 local prevBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
     UDim2.new(1, -50, 0.5, -11), "<", 4)
 prevBtn.TextSize = 12
-
 local nextBtn = makeBtn(aimRow, UDim2.fromOffset(24, 22),
     UDim2.new(1, -24, 0.5, -11), ">", 4)
 nextBtn.TextSize = 12
@@ -389,73 +401,104 @@ end
 prevBtn.MouseButton1Click:Connect(function()
     aimPartIndex = ((aimPartIndex - 2) % #AIM_PARTS) + 1
     updateAimPartLabel()
-    notify("Aim → " .. AIM_PARTS[aimPartIndex])
+    notify("Aim -> " .. AIM_PARTS[aimPartIndex])
 end)
-
 nextBtn.MouseButton1Click:Connect(function()
     aimPartIndex = (aimPartIndex % #AIM_PARTS) + 1
     updateAimPartLabel()
-    notify("Aim → " .. AIM_PARTS[aimPartIndex])
+    notify("Aim -> " .. AIM_PARTS[aimPartIndex])
 end)
 
--- ESP Loader
-local espLoaderRow = makeFrame(p1, UDim2.new(1, 0, 0, ROW_H),
-    UDim2.fromOffset(0, rowY(7)), C.surface, 3)
-applyCorner(espLoaderRow, 6)
-
-makeLabel(espLoaderRow, UDim2.new(0, 100, 1, 0), UDim2.fromOffset(10, 0),
-    "ESP Script", C.textPri, 13, Enum.Font.Gotham, 4)
-
-local espLoadBtn = makeBtn(espLoaderRow, UDim2.fromOffset(80, 22),
-    UDim2.new(1, -88, 0.5, -11), "Load ESP", 4)
-espLoadBtn.BackgroundColor3 = C.accentD
-espLoadBtn.TextColor3 = C.accent
-espLoadBtn.Font = Enum.Font.GothamSemibold
-
-local espLoaded = false
-espLoadBtn.MouseButton1Click:Connect(function()
-    if espLoaded then
-        notify("ESP already loaded", C.textSec)
-        return
-    end
-    notify("Loading ESP...", C.yellow)
-    local ok, err = pcall(function()
-        loadstring(game:HttpGet(
-            "https://raw.githubusercontent.com/humiditybusinessemail-prog/aimbot-for-valley-prison/refs/heads/main/esp"
-        ))()
-    end)
-    if ok then
-        espLoaded = true
-        espLoadBtn.Text = "Loaded ✓"
-        espLoadBtn.BackgroundColor3 = Color3.fromRGB(20, 60, 30)
-        espLoadBtn.TextColor3 = C.green
-        notify("ESP loaded", C.green)
-    else
-        notify("ESP load failed", C.red)
-        warn("ESP loader:", err)
-    end
-end)
-
--- ─── Page 2: Settings — sliders (drag fix) ───────────────────────────────────
+-- ─── Tab 2: Player ESP ───────────────────────────────────────────────────────
 local p2 = tabPages[2]
+
+-- refreshAllPlayerESP: called whenever master toggle or sub-toggles change
+local function refreshAllPlayerESP()
+    for _, obj in pairs(playerESPObjects) do
+        if obj.highlight then
+            obj.highlight.Enabled = playerESPEnabled and playerChams
+        end
+        if obj.billboard then
+            obj.billboard.Enabled = playerESPEnabled and playerNames
+        end
+    end
+end
+
+addToggleRow(p2, 1, "Player ESP", playerESPEnabled, function()
+    playerESPEnabled = not playerESPEnabled
+    refreshAllPlayerESP()
+    notify("Player ESP " .. (playerESPEnabled and "on" or "off"),
+        playerESPEnabled and C.green or C.red)
+    return playerESPEnabled
+end)
+
+addToggleRow(p2, 2, "Chams", playerChams, function()
+    playerChams = not playerChams
+    refreshAllPlayerESP()
+    notify("Chams " .. (playerChams and "on" or "off"))
+    return playerChams
+end)
+
+addToggleRow(p2, 3, "Names", playerNames, function()
+    playerNames = not playerNames
+    refreshAllPlayerESP()
+    notify("Names " .. (playerNames and "on" or "off"))
+    return playerNames
+end)
+
+-- ─── Tab 3: Bin ESP ───────────────────────────────────────────────────────────
+local p3 = tabPages[3]
+
+addToggleRow(p3, 1, "Bin ESP", binESPEnabled, function()
+    binESPEnabled = not binESPEnabled
+    notify("Bin ESP " .. (binESPEnabled and "on" or "off"),
+        binESPEnabled and C.green or C.red)
+    return binESPEnabled
+end)
+
+addToggleRow(p3, 2, "Show Available", showAvailable, function()
+    showAvailable = not showAvailable
+    notify("Show Available " .. (showAvailable and "on" or "off"))
+    return showAvailable
+end)
+
+addToggleRow(p3, 3, "Show Cooldown", showCooldown, function()
+    showCooldown = not showCooldown
+    notify("Show Cooldown " .. (showCooldown and "on" or "off"))
+    return showCooldown
+end)
+
+addToggleRow(p3, 4, "Bin Name Tags", billboardEnabled, function()
+    billboardEnabled = not billboardEnabled
+    notify("Bin Name Tags " .. (billboardEnabled and "on" or "off"))
+    return billboardEnabled
+end)
+
+local countRow = makeFrame(p3, UDim2.new(1, 0, 0, 28),
+    UDim2.fromOffset(0, rowY(5)), C.surface, 3)
+applyCorner(countRow, 6)
+makeLabel(countRow, UDim2.new(0.6, 0, 1, 0), UDim2.fromOffset(10, 0),
+    "Available", C.textSec, 12, Enum.Font.Gotham, 4)
+local availCountLbl = makeLabel(countRow, UDim2.new(0.4, -10, 1, 0),
+    UDim2.new(0.6, 0, 0, 0), "0", C.accent, 13, Enum.Font.GothamBold, 4)
+availCountLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+-- ─── Tab 4: Settings ─────────────────────────────────────────────────────────
+local p4 = tabPages[4]
 
 local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, onChanged)
     local row = makeFrame(page, UDim2.new(1, 0, 0, 44),
         UDim2.fromOffset(0, (n-1) * 52), C.surface, 3)
     applyCorner(row, 6)
-
     makeLabel(row, UDim2.new(0.6, 0, 0, 18),
         UDim2.fromOffset(10, 4), labelText, C.textPri, 12, Enum.Font.Gotham, 4)
-
     local valLbl = makeLabel(row, UDim2.new(0.4, -10, 0, 18),
         UDim2.new(0.6, 0, 0, 4), tostring(initVal), C.accent, 12,
         Enum.Font.GothamSemibold, 4)
     valLbl.TextXAlignment = Enum.TextXAlignment.Right
-
     local trackBg = makeFrame(row, UDim2.new(1, -20, 0, 6),
         UDim2.fromOffset(10, 32), C.raised, 4)
     applyCorner(trackBg, 3)
-
     local hitArea = Instance.new("TextButton")
     hitArea.Size = UDim2.new(1, 0, 0, 20)
     hitArea.Position = UDim2.fromOffset(0, -7)
@@ -463,12 +506,10 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
     hitArea.Text = ""
     hitArea.ZIndex = 6
     hitArea.Parent = trackBg
-
     local fill = makeFrame(trackBg,
         UDim2.new((initVal - minV)/(maxV - minV), 0, 1, 0),
         UDim2.fromOffset(0, 0), C.accent, 5)
     applyCorner(fill, 3)
-
     local knob = Instance.new("Frame")
     knob.Size = UDim2.fromOffset(12, 12)
     knob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -478,9 +519,7 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
     knob.ZIndex = 6
     knob.Parent = trackBg
     applyCorner(knob, 6)
-
     local dragging = false
-
     local function updateFromX(absX)
         local rel = math.clamp(
             (absX - trackBg.AbsolutePosition.X) / trackBg.AbsoluteSize.X, 0, 1)
@@ -493,20 +532,16 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
         valLbl.Text = tostring(val)
         onChanged(val)
     end
-
     hitArea.MouseButton1Down:Connect(function()
         dragging = true
         window.Draggable = false
-        local mouse = UserInputService:GetMouseLocation()
-        updateFromX(mouse.X)
+        updateFromX(UserInputService:GetMouseLocation().X)
     end)
-
     UserInputService.InputChanged:Connect(function(inp)
         if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
             updateFromX(inp.Position.X)
         end
     end)
-
     UserInputService.InputEnded:Connect(function(inp)
         if dragging and inp.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = false
@@ -515,16 +550,16 @@ local function addSliderRow(page, n, labelText, initVal, minV, maxV, isFloat, on
     end)
 end
 
-addSliderRow(p2, 1, "Smoothness", smoothness, 0, 1, true, function(v)
+addSliderRow(p4, 1, "Smoothness", smoothness, 0, 1, true, function(v)
     smoothness = v
 end)
 
-addSliderRow(p2, 2, "FOV Radius", fov, 50, 500, false, function(v)
+addSliderRow(p4, 2, "FOV Radius", fov, 50, 500, false, function(v)
     fov = v
 end)
 
--- ─── Page 3: Keybinds ────────────────────────────────────────────────────────
-local p3 = tabPages[3]
+-- ─── Tab 5: Keybinds ─────────────────────────────────────────────────────────
+local p5 = tabPages[5]
 local kbBtnRefs = {}
 
 local function keybindName(kc)
@@ -541,27 +576,23 @@ local function updateKbBtn(key)
 end
 
 for i, meta in ipairs(KeybindMeta) do
-    local row = makeFrame(p3, UDim2.new(1, 0, 0, ROW_H),
+    local row = makeFrame(p5, UDim2.new(1, 0, 0, ROW_H),
         UDim2.fromOffset(0, rowY(i)), C.surface, 3)
     applyCorner(row, 6)
-
     makeLabel(row, UDim2.new(0, 130, 1, 0), UDim2.fromOffset(10, 0),
         meta.label, C.textPri, 12, Enum.Font.Gotham, 4)
-
     local kbBtn = makeBtn(row, UDim2.fromOffset(72, 22),
         UDim2.new(1, -98, 0.5, -11), keybindName(Keybinds[meta.key]), 4)
     kbBtn.TextSize = 11
     kbBtn.Font = Enum.Font.GothamSemibold
     kbBtnRefs[meta.key] = kbBtn
-
     local clrBtn = makeBtn(row, UDim2.fromOffset(20, 22),
-        UDim2.new(1, -24, 0.5, -11), "✕", 4)
+        UDim2.new(1, -24, 0.5, -11), "x", 4)
     clrBtn.TextSize = 10
+    clrBtn.Font = Enum.Font.GothamBold
     clrBtn.BackgroundColor3 = Color3.fromRGB(80, 28, 28)
     clrBtn.TextColor3 = C.red
-
     local captureKey = meta.key
-
     kbBtn.MouseButton1Click:Connect(function()
         if listeningFor == captureKey then
             listeningFor = nil
@@ -574,7 +605,6 @@ for i, meta in ipairs(KeybindMeta) do
         kbBtn.BackgroundColor3 = C.accentD
         kbBtn.TextColor3 = C.accent
     end)
-
     clrBtn.MouseButton1Click:Connect(function()
         if listeningFor == captureKey then listeningFor = nil end
         Keybinds[captureKey] = Enum.KeyCode.Unknown
@@ -593,14 +623,12 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             return
         end
         Keybinds[listeningFor] = kc
-        notify(listeningFor .. " → " .. keybindName(kc), C.accent)
+        notify(listeningFor .. " -> " .. keybindName(kc), C.accent)
         updateKbBtn(listeningFor)
         listeningFor = nil
         return
     end
-
     if gameProcessed then return end
-
     if input.UserInputType == Enum.UserInputType.Keyboard then
         local kc = input.KeyCode
         local function fire(bindKey, action)
@@ -608,7 +636,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                 action()
             end
         end
-
         fire("ToggleWindow", function()
             setWindowVisible(not windowVisible)
             if windowVisible then notify("UI shown", C.textSec) end
@@ -643,9 +670,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         fire("CycleAimPart", function()
             aimPartIndex = (aimPartIndex % #AIM_PARTS) + 1
             updateAimPartLabel()
-            notify("Aim → " .. AIM_PARTS[aimPartIndex])
+            notify("Aim -> " .. AIM_PARTS[aimPartIndex])
         end)
-
+        fire("TogglePlayerESP", function()
+            playerESPEnabled = not playerESPEnabled
+            if toggleSetters["Player ESP"] then toggleSetters["Player ESP"](playerESPEnabled) end
+            refreshAllPlayerESP()
+            notify("Player ESP " .. (playerESPEnabled and "on" or "off"),
+                playerESPEnabled and C.green or C.red)
+        end)
+        fire("ToggleBinESP", function()
+            binESPEnabled = not binESPEnabled
+            if toggleSetters["Bin ESP"] then toggleSetters["Bin ESP"](binESPEnabled) end
+            notify("Bin ESP " .. (binESPEnabled and "on" or "off"),
+                binESPEnabled and C.green or C.red)
+        end)
     elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         holdingRMB = true
         lockedTarget = nil
@@ -674,7 +713,7 @@ if DrawingAvail then
     fovCircle.Visible = true
 else
     local fovGui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-    fovGui.Name = "AimItFOV"
+    fovGui.Name = "HubFOV"
     fovFrame = Instance.new("Frame", fovGui)
     fovFrame.AnchorPoint = Vector2.new(0.5, 0.5)
     fovFrame.BackgroundTransparency = 1
@@ -704,7 +743,7 @@ local function updateCircle()
     end
 end
 
--- ─── Aimbot logic ────────────────────────────────────────────────────────────
+-- ─── Aimbot Helpers ───────────────────────────────────────────────────────────
 local function isIgnoredPart(part)
     if not part or not part:IsA("BasePart") then return false end
     if part.Transparency == 1 then
@@ -814,7 +853,203 @@ local function getClosestTarget()
     return closest
 end
 
--- ─── Main loop ────────────────────────────────────────────────────────────────
+-- ─── Player ESP Core ──────────────────────────────────────────────────────────
+local function getTeamColor(plr)
+    if plr.Team and plr.TeamColor then
+        return plr.TeamColor.Color
+    end
+    return Color3.fromRGB(200, 200, 200)
+end
+
+local function buildPlayerESP(plr)
+    if playerESPObjects[plr] then return end
+    local char = plr.Character
+    if not char then return end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "HubPlayerHL"
+    hl.FillColor = getTeamColor(plr)
+    hl.OutlineColor = getTeamColor(plr)
+    hl.FillTransparency = 0.45
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Enabled = playerESPEnabled and playerChams
+    hl.Parent = char
+
+    local hrp = char:WaitForChild("HumanoidRootPart", 4)
+    local billboard, nameLabel
+    if hrp then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "HubPlayerBB"
+        billboard.Size = UDim2.fromOffset(120, 20)
+        billboard.StudsOffset = Vector3.new(0, 3.2, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Enabled = playerESPEnabled and playerNames
+        billboard.Parent = hrp
+
+        nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = plr.DisplayName
+        nameLabel.TextColor3 = getTeamColor(plr)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 13
+        nameLabel.TextStrokeTransparency = 0.4
+        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        nameLabel.Parent = billboard
+    end
+
+    playerESPObjects[plr] = {highlight = hl, billboard = billboard, nameLabel = nameLabel}
+end
+
+local function removePlayerESP(plr)
+    local obj = playerESPObjects[plr]
+    if not obj then return end
+    if obj.highlight and obj.highlight.Parent then obj.highlight:Destroy() end
+    if obj.billboard and obj.billboard.Parent then obj.billboard:Destroy() end
+    playerESPObjects[plr] = nil
+end
+
+local function refreshPlayerColors(plr)
+    local obj = playerESPObjects[plr]
+    if not obj then return end
+    local col = getTeamColor(plr)
+    if obj.highlight then
+        obj.highlight.FillColor    = col
+        obj.highlight.OutlineColor = col
+    end
+    if obj.nameLabel then
+        obj.nameLabel.TextColor3 = col
+    end
+end
+
+-- defined earlier so keybind fire can call it
+local function refreshAllPlayerESP_actual()
+    for _, obj in pairs(playerESPObjects) do
+        if obj.highlight then
+            obj.highlight.Enabled = playerESPEnabled and playerChams
+        end
+        if obj.billboard then
+            obj.billboard.Enabled = playerESPEnabled and playerNames
+        end
+    end
+end
+
+local function hookPlayer(plr)
+    if plr == LocalPlayer then return end
+    local function onChar()
+        task.wait(0.2)
+        removePlayerESP(plr)
+        buildPlayerESP(plr)
+    end
+    if plr.Character then onChar() end
+    plr.CharacterAdded:Connect(onChar)
+    plr:GetPropertyChangedSignal("Team"):Connect(function()
+        refreshPlayerColors(plr)
+    end)
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do hookPlayer(plr) end
+Players.PlayerAdded:Connect(hookPlayer)
+Players.PlayerRemoving:Connect(function(plr) removePlayerESP(plr) end)
+
+-- ─── Bin ESP Core ─────────────────────────────────────────────────────────────
+local function isAvailable(binModel)
+    local stocked = binModel:GetAttribute("Stocked")
+    if stocked == nil then return false end
+    return stocked == true
+end
+
+local function buildBinESP(binModel)
+    if trackedBins[binModel] then return end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "HubBinHL"
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.4
+    hl.OutlineTransparency = 0
+    hl.Parent = binModel
+
+    local rootPart = binModel:FindFirstChildWhichIsA("BasePart")
+    local billboard, tagLabel, statusLabel
+
+    if rootPart then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "HubBinBB"
+        billboard.Size = UDim2.fromOffset(120, 36)
+        billboard.StudsOffset = Vector3.new(0, 4, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = rootPart
+
+        tagLabel = Instance.new("TextLabel")
+        tagLabel.Size = UDim2.new(1, 0, 0.55, 0)
+        tagLabel.BackgroundTransparency = 1
+        tagLabel.Text = binModel.Name
+        tagLabel.TextColor3 = C.textPri
+        tagLabel.Font = Enum.Font.GothamBold
+        tagLabel.TextSize = 13
+        tagLabel.TextStrokeTransparency = 0.3
+        tagLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        tagLabel.Parent = billboard
+
+        statusLabel = Instance.new("TextLabel")
+        statusLabel.Size = UDim2.new(1, 0, 0.45, 0)
+        statusLabel.Position = UDim2.new(0, 0, 0.55, 0)
+        statusLabel.BackgroundTransparency = 1
+        statusLabel.Text = "Available"
+        statusLabel.TextColor3 = C.green
+        statusLabel.Font = Enum.Font.GothamSemibold
+        statusLabel.TextSize = 11
+        statusLabel.TextStrokeTransparency = 0.3
+        statusLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        statusLabel.Parent = billboard
+    end
+
+    local attrConn = binModel:GetAttributeChangedSignal("Stocked"):Connect(function() end)
+
+    trackedBins[binModel] = {
+        highlight   = hl,
+        billboard   = billboard,
+        tagLabel    = tagLabel,
+        statusLabel = statusLabel,
+        attrConn    = attrConn,
+    }
+end
+
+local function removeBinESP(binModel)
+    local t = trackedBins[binModel]
+    if not t then return end
+    if t.highlight and t.highlight.Parent then t.highlight:Destroy() end
+    if t.billboard and t.billboard.Parent then t.billboard:Destroy() end
+    if t.attrConn then t.attrConn:Disconnect() end
+    trackedBins[binModel] = nil
+end
+
+local function scanBins()
+    local folder = workspace:FindFirstChild(BIN_FOLDER)
+    if not folder then return end
+    for _, desc in ipairs(folder:GetDescendants()) do
+        if desc:IsA("Model") or desc:IsA("BasePart") then
+            for _, binName in ipairs(BIN_NAMES) do
+                if desc.Name == binName then
+                    buildBinESP(desc)
+                    break
+                end
+            end
+        end
+    end
+end
+
+task.defer(scanBins)
+
+local binFolder = workspace:FindFirstChild(BIN_FOLDER)
+if binFolder then
+    binFolder.DescendantAdded:Connect(function()
+        task.defer(scanBins)
+    end)
+end
+
+-- ─── Main Loop ────────────────────────────────────────────────────────────────
 RunService.RenderStepped:Connect(function()
     updateCircle()
     if not fovVisible then setFOVVisible(false) end
@@ -824,11 +1059,9 @@ RunService.RenderStepped:Connect(function()
             and lockedTarget.Parent
             and lockedTarget:IsDescendantOf(workspace)
             and lockedTarget.Name == AIM_PARTS[aimPartIndex]
-
         if not lockValid then
             lockedTarget = getClosestTarget()
         end
-
         if lockedTarget then
             local desiredPos = lockedTarget.Position
             if autoPredict then
@@ -839,7 +1072,6 @@ RunService.RenderStepped:Connect(function()
             local desired = CFrame.new(current.Position, desiredPos)
             local alpha   = math.clamp(1 - smoothness, 0.05, 1)
             Camera.CFrame = current:Lerp(desired, alpha)
-
             local hum = lockedTarget.Parent
                 and lockedTarget.Parent:FindFirstChildOfClass("Humanoid")
             if not hum or hum.Health <= 0 then
@@ -847,4 +1079,52 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
+end)
+
+-- ─── Heartbeat: ESP sync ─────────────────────────────────────────────────────
+RunService.Heartbeat:Connect(function()
+    -- player ESP color sync + enabled state
+    for plr, obj in pairs(playerESPObjects) do
+        if plr.Team then refreshPlayerColors(plr) end
+        if obj.highlight then
+            obj.highlight.Enabled = playerESPEnabled and playerChams
+        end
+        if obj.billboard then
+            obj.billboard.Enabled = playerESPEnabled and playerNames
+        end
+    end
+
+    -- bin ESP
+    if not binESPEnabled then
+        for _, t in pairs(trackedBins) do
+            if t.highlight then t.highlight.Enabled = false end
+            if t.billboard then t.billboard.Enabled = false end
+        end
+        availCountLbl.Text = "0"
+        return
+    end
+
+    local availableCount = 0
+    for binModel, t in pairs(trackedBins) do
+        if not binModel.Parent then
+            removeBinESP(binModel)
+        else
+            local avail = isAvailable(binModel)
+            if avail then availableCount += 1 end
+            local shouldShow = (avail and showAvailable) or (not avail and showCooldown)
+            if t.highlight then
+                t.highlight.Enabled      = shouldShow
+                t.highlight.FillColor    = avail and C.available or C.cooldown
+                t.highlight.OutlineColor = avail and C.available or C.cooldown
+            end
+            if t.billboard then
+                t.billboard.Enabled = billboardEnabled and shouldShow
+            end
+            if t.statusLabel then
+                t.statusLabel.Text       = avail and "Available" or "Cooldown"
+                t.statusLabel.TextColor3 = avail and C.green or C.red
+            end
+        end
+    end
+    availCountLbl.Text = tostring(availableCount)
 end)
